@@ -154,8 +154,6 @@ DB_PASSWORD = "tu_contraseña"
 DB_NAME = "nombre_base_datos"
 ```
 
-> **Importante:** No subas contraseñas reales al repositorio. Para un proyecto publicado en GitHub, se recomienda utilizar variables de entorno o un archivo de configuración local incluido en `.gitignore`.
-
 ---
 
 ## 🤖 Configuración del modelo
@@ -184,8 +182,6 @@ Para obtener información adicional sobre el modelo, consultar:
 ```text
 models/README.txt
 ```
-
-> **Importante:** Si el archivo `.pt` es demasiado grande para GitHub, se recomienda utilizar **Git LFS**, GitHub Releases o un servicio externo de almacenamiento de modelos.
 
 ---
 
