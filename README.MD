@@ -1,4 +1,4 @@
-Analizador de Cromosomas - Trabajo Práctico Universitario
+Analizador de Cromosomas - Trabajo Final
 ==========================================================
 
 DESCRIPCIÓN

@@ -60,7 +60,7 @@ class AnalizadorImagen:
 
     def cargar_imagen_desde_array(self, array_imagen):
         """
-        Carga una imagen desde un array numpy (útil para tests o captura).
+        Carga una imagen desde un array numpy.
         """
         if array_imagen is None or not isinstance(array_imagen, np.ndarray):
             raise ValueError("Array de imagen inválido")
