@@ -1,87 +1,431 @@
-Analizador de Cromosomas - Trabajo Final
-==========================================================
+# 🧬 Cariodetector
 
-DESCRIPCIÓN
------------
-Aplicación de escritorio en Python para análisis de imágenes microscópicas
-de cromosomas humanos. Utiliza un modelo YOLO preentrenado para detectar
-y clasificar 24 tipos de cromosomas (1-22, X, Y).
+Aplicación de escritorio desarrollada en **Python** para el análisis de imágenes microscópicas de cromosomas humanos mediante técnicas de **visión artificial e inteligencia artificial**.
 
-REQUISITOS
-----------
-- Python 3.8+
-- MySQL Server
-- Librerías en requirements.txt
+El sistema utiliza un modelo **YOLO preentrenado** para detectar y clasificar los **24 tipos de cromosomas humanos**: cromosomas 1–22, X e Y.
 
-INSTALACIÓN
------------
-1. Crear entorno virtual (recomendado):
-   python -m venv venv
-   source venv/bin/activate  # Linux/Mac
-   venv\Scripts\activate     # Windows
+---
 
-2. Instalar dependencias:
-   pip install -r requirements.txt
+## 📋 Tabla de contenidos
 
-3. Configurar base de datos:
-   - Ejecutar scripts_sql/crear_bd.sql en MySQL
-   - Ajustar credenciales en utils/db_config.py
+- [Descripción](#-descripción)
+- [Características](#-características)
+- [Tecnologías utilizadas](#-tecnologías-utilizadas)
+- [Requisitos](#-requisitos)
+- [Instalación](#-instalación)
+- [Configuración de la base de datos](#-configuración-de-la-base-de-datos)
+- [Configuración del modelo](#-configuración-del-modelo)
+- [Ejecución](#-ejecución)
+- [Flujo de uso](#-flujo-de-uso)
+- [Estructura del proyecto](#-estructura-del-proyecto)
+- [Clases de cromosomas](#-clases-de-cromosomas)
+- [Errores comunes](#-errores-comunes)
+- [Notas](#-notas)
+- [Autor](#-autor)
 
-4. Modelo de IA:
-   - Descargar/obtener best_24_chromosomes.pt
-   - Colocarlo en la carpeta models/
-   - Ver models/README.txt para más detalles
+---
 
-EJECUCIÓN
----------
+## 🔬 Descripción
+
+**Cariodetector** es una aplicación de escritorio orientada al procesamiento y análisis de imágenes microscópicas de cromosomas.
+
+El sistema permite:
+
+- Cargar imágenes microscópicas en formato JPG o PNG.
+- Detectar cromosomas automáticamente mediante un modelo YOLO.
+- Clasificar cada cromosoma según su tipo.
+- Visualizar las detecciones mediante *bounding boxes* y etiquetas.
+- Consultar un resumen de los cromosomas detectados.
+- Guardar los resultados de los análisis en una base de datos MySQL.
+- Consultar el historial de análisis realizados.
+
+---
+
+## ✨ Características
+
+- 🖼️ Carga y visualización de imágenes.
+- 🤖 Detección automática mediante YOLO.
+- 🧬 Clasificación de 24 tipos de cromosomas.
+- 📦 Visualización de *bounding boxes*.
+- 📊 Tabla de resultados y resumen de detecciones.
+- 💾 Persistencia de resultados mediante MySQL.
+- 📚 Historial de análisis anteriores.
+- 🖥️ Interfaz gráfica desarrollada con Tkinter.
+- 🐍 Implementación completamente realizada en Python.
+
+---
+
+## 🛠️ Tecnologías utilizadas
+
+| Tecnología | Uso |
+|---|---|
+| **Python 3.8+** | Lenguaje principal |
+| **YOLO** | Detección y clasificación de cromosomas |
+| **Tkinter** | Interfaz gráfica |
+| **MySQL** | Almacenamiento de resultados |
+| **OpenCV** | Procesamiento de imágenes |
+| **Pillow** | Manejo y visualización de imágenes |
+
+Las dependencias completas del proyecto se encuentran en [`requirements.txt`](requirements.txt).
+
+---
+
+## 📋 Requisitos
+
+Antes de instalar el proyecto, es necesario contar con:
+
+- **Python 3.8 o superior**
+- **MySQL Server**
+- **Git** (opcional, pero recomendado)
+- Las dependencias especificadas en `requirements.txt`
+- El modelo `best_24_chromosomes.pt`
+
+---
+
+## 🚀 Instalación
+
+### 1. Clonar el repositorio
+
+```bash
+git clone https://github.com/lucasscattolin/cariodetector.git
+cd cariodetector
+```
+
+### 2. Crear un entorno virtual
+
+Se recomienda utilizar un entorno virtual para aislar las dependencias del proyecto.
+
+#### Windows
+
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+#### Linux / macOS
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+### 3. Instalar las dependencias
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## 🗄️ Configuración de la base de datos
+
+El proyecto utiliza **MySQL** para almacenar los resultados de los análisis.
+
+### 1. Crear la base de datos
+
+Ejecutá el script SQL ubicado en:
+
+```text
+scripts_sql/crear_bd.sql
+```
+
+Por ejemplo, desde MySQL:
+
+```sql
+SOURCE scripts_sql/crear_bd.sql;
+```
+
+### 2. Configurar las credenciales
+
+Editá el archivo:
+
+```text
+utils/db_config.py
+```
+
+y configurá los datos correspondientes a tu instalación de MySQL.
+
+Ejemplo:
+
+```python
+DB_HOST = "localhost"
+DB_USER = "root"
+DB_PASSWORD = "tu_contraseña"
+DB_NAME = "nombre_base_datos"
+```
+
+> **Importante:** No subas contraseñas reales al repositorio. Para un proyecto publicado en GitHub, se recomienda utilizar variables de entorno o un archivo de configuración local incluido en `.gitignore`.
+
+---
+
+## 🤖 Configuración del modelo
+
+El proyecto requiere el modelo entrenado:
+
+```text
+best_24_chromosomes.pt
+```
+
+El archivo debe ubicarse dentro de:
+
+```text
+models/
+```
+
+La estructura esperada es:
+
+```text
+models/
+└── best_24_chromosomes.pt
+```
+
+Para obtener información adicional sobre el modelo, consultar:
+
+```text
+models/README.txt
+```
+
+> **Importante:** Si el archivo `.pt` es demasiado grande para GitHub, se recomienda utilizar **Git LFS**, GitHub Releases o un servicio externo de almacenamiento de modelos.
+
+---
+
+## ▶️ Ejecución
+
+Una vez configurado el entorno, la base de datos y el modelo, ejecutá:
+
+```bash
 python main.py
+```
 
-ESTRUCTURA DEL PROYECTO
------------------------
-proyecto/
-├── main.py                 # Punto de entrada
-├── requirements.txt        # Dependencias
-├── README.txt              # Este archivo
+En Linux/macOS, si tu sistema utiliza `python3`:
+
+```bash
+python3 main.py
+```
+
+---
+
+## 🔄 Flujo de uso
+
+El funcionamiento básico de la aplicación es el siguiente:
+
+```text
+┌─────────────────────┐
+│   Abrir programa    │
+└──────────┬──────────┘
+           ↓
+┌─────────────────────┐
+│ Seleccionar imagen  │
+│      JPG / PNG      │
+└──────────┬──────────┘
+           ↓
+┌─────────────────────┐
+│ Visualizar imagen   │
+│      original       │
+└──────────┬──────────┘
+           ↓
+┌─────────────────────┐
+│      Analizar       │
+│     con YOLO        │
+└──────────┬──────────┘
+           ↓
+┌─────────────────────┐
+│ Visualizar detección│
+│ + bounding boxes    │
+│ + etiquetas         │
+└──────────┬──────────┘
+           ↓
+┌─────────────────────┐
+│ Tabla y resumen de  │
+│    detecciones      │
+└──────────┬──────────┘
+           ↓
+┌─────────────────────┐
+│   Guardar análisis  │
+│      en MySQL       │
+└──────────┬──────────┘
+           ↓
+┌─────────────────────┐
+│      Historial      │
+│ análisis anteriores │
+└─────────────────────┘
+```
+
+### Pasos principales
+
+1. Abrir la aplicación.
+2. Seleccionar una imagen microscópica.
+3. Visualizar la imagen original.
+4. Ejecutar el análisis.
+5. Revisar las detecciones realizadas por el modelo.
+6. Consultar la tabla y el resumen de resultados.
+7. Guardar el análisis en MySQL.
+8. Consultar los análisis anteriores desde el historial.
+
+---
+
+## 📁 Estructura del proyecto
+
+```text
+analizador-cromosomas/
+│
+├── main.py
+├── requirements.txt
+├── README.md
+├── .gitignore
+│
 ├── interfaz/
-│   └── interfaz.py         # Interfaz Tkinter
+│   └── interfaz.py
+│
 ├── funciones/
-│   ├── analisis_imagen.py  # Clase AnalizadorImagen (OOP)
-│   ├── modelo_cromosomas.py # Clase DetectorCromosomas
-│   └── resultados.py       # Funciones de resultados
+│   ├── analisis_imagen.py
+│   ├── modelo_cromosomas.py
+│   └── resultados.py
+│
 ├── utils/
-│   └── db_config.py        # Configuración MySQL
+│   └── db_config.py
+│
 ├── models/
-│   └── README.txt          # Instrucciones del modelo
+│   ├── best_24_chromosomes.pt
+│   └── README.txt
+│
 ├── assets/
-│   └── imagenes/           # Imágenes de ejemplo
+│   └── imagenes/
+│
 └── scripts_sql/
-    └── crear_bd.sql        # Script de base de datos
+    └── crear_bd.sql
+```
 
-FLUJO DE USO
-------------
-1. Abrir programa
-2. "Seleccionar imagen" -> elegir JPG/PNG
-3. Ver imagen original
-4. "Analizar" -> detecta cromosomas
-5. Ver imagen con bounding boxes y etiquetas
-6. Ver tabla de detecciones y resumen
-7. "Guardar análisis" -> almacena en MySQL
-8. "Historial" -> consulta análisis previos
+### Descripción de los principales archivos
 
-CLASES DE CROMOSOMAS (24)
--------------------------
-Cromosoma 1  al 22
-Cromosoma X
-Cromosoma Y
+| Archivo / Carpeta | Descripción |
+|---|---|
+| `main.py` | Punto de entrada de la aplicación |
+| `requirements.txt` | Dependencias de Python |
+| `interfaz/` | Componentes de la interfaz gráfica |
+| `funciones/` | Lógica principal del análisis |
+| `analisis_imagen.py` | Procesamiento y análisis de imágenes |
+| `modelo_cromosomas.py` | Gestión del modelo de detección |
+| `resultados.py` | Procesamiento y presentación de resultados |
+| `utils/` | Configuraciones y utilidades |
+| `db_config.py` | Configuración de conexión a MySQL |
+| `models/` | Archivos relacionados con el modelo YOLO |
+| `assets/` | Recursos e imágenes de ejemplo |
+| `scripts_sql/` | Scripts para crear y configurar la base de datos |
 
-ERRORES COMUNES
----------------
-- "Modelo no encontrado": Coloque best_24_chromosomes.pt en models/
-- "MySQL no disponible": Verifique servidor MySQL y credenciales
-- "Imagen inválida": Use formatos JPG o PNG
+---
 
-NOTAS
------
-- Rutas relativas con pathlib
-- Sin Docker, sin API web, sin autenticación
-- Preparado para Windows y Linux
+## 🧬 Clases de cromosomas
+
+El modelo contempla **24 clases**:
+
+| Clase | Tipo |
+|---:|---|
+| 1 | Cromosoma 1 |
+| 2 | Cromosoma 2 |
+| 3 | Cromosoma 3 |
+| ... | ... |
+| 22 | Cromosoma 22 |
+| X | Cromosoma X |
+| Y | Cromosoma Y |
+
+En términos generales, las clases corresponden a los cromosomas humanos **1–22, X e Y**.
+
+---
+
+## ⚠️ Errores comunes
+
+### `Modelo no encontrado`
+
+Verificá que el archivo:
+
+```text
+best_24_chromosomes.pt
+```
+
+se encuentre dentro de:
+
+```text
+models/
+```
+
+---
+
+### `MySQL no disponible`
+
+Comprobá:
+
+- Que MySQL Server esté ejecutándose.
+- Que la base de datos haya sido creada.
+- Que el usuario y contraseña sean correctos.
+- Que la configuración de `utils/db_config.py` sea correcta.
+
+---
+
+### `Imagen inválida`
+
+La aplicación admite imágenes en formatos:
+
+```text
+JPG
+JPEG
+PNG
+```
+
+Verificá que el archivo seleccionado sea una imagen válida y que pueda abrirse correctamente.
+
+---
+
+## 🔐 Seguridad
+
+Este proyecto está pensado principalmente para fines académicos.
+
+No se recomienda almacenar credenciales directamente en el código fuente cuando el proyecto vaya a ser publicado.
+
+Antes de subir el proyecto a GitHub, asegurate de incluir archivos sensibles en `.gitignore`, por ejemplo:
+
+```gitignore
+venv/
+__pycache__/
+*.pyc
+.env
+*.log
+```
+
+También se recomienda revisar el repositorio antes del primer `push` para evitar publicar contraseñas, claves API u otras credenciales.
+
+---
+
+## 📝 Notas
+
+- El proyecto utiliza rutas relativas mediante `pathlib`.
+- No requiere Docker.
+- No utiliza una API web.
+- No incluye sistema de autenticación.
+- Está preparado para ejecutarse en Windows y Linux.
+- El modelo YOLO debe estar disponible localmente para realizar las detecciones.
+- La precisión de las detecciones depende del modelo entrenado y de la calidad de las imágenes utilizadas.
+
+---
+
+## 🎓 Proyecto académico
+
+Este proyecto fue desarrollado como **Trabajo Final** y tiene como objetivo integrar conceptos de:
+
+- Programación orientada a objetos.
+- Procesamiento de imágenes.
+- Visión artificial.
+- Inteligencia artificial.
+- Detección de objetos.
+- Interfaces gráficas.
+- Bases de datos relacionales.
+
+---
+
+## 👤 Autores
+
+**Arqueros, Michelle**
+**Scattolin, Lucas**
+**Sobrado, Paula**
+
+> Proyecto desarrollado con fines académicos.

@@ -1,70 +1,68 @@
-Modelo YOLO para Detección de Cromosomas
-=========================================
+# Modelo YOLO para Cariodetector
 
-ARCHIVO ESPERADO
-----------------
+La aplicación utiliza un modelo **Ultralytics YOLO** para detectar y clasificar 24 tipos de cromosomas.
+
+## Modelo requerido
+
+Archivo:
+
+```text
 best_24_chromosomes.pt
+```
 
-UBICACIÓN
----------
-Este archivo debe colocarse en:
+Debe ubicarse en:
+
+```text
 models/best_24_chromosomes.pt
+```
 
-Ruta relativa desde la raíz del proyecto:
-models/best_24_chromosomes.pt
+## Clases
 
-CLASES QUE DETECTA (24)
------------------------
-0  - cromosoma 1
-1  - cromosoma 2
-2  - cromosoma 3
-3  - cromosoma 4
-4  - cromosoma 5
-5  - cromosoma 6
-6  - cromosoma 7
-7  - cromosoma 8
-8  - cromosoma 9
-9  - cromosoma 10
-10 - cromosoma 11
-11 - cromosoma 12
-12 - cromosoma 13
-13 - cromosoma 14
-14 - cromosoma 15
-15 - cromosoma 16
-16 - cromosoma 17
-17 - cromosoma 18
-18 - cromosoma 19
-19 - cromosoma 20
-20 - cromosoma 21
-21 - cromosoma 22
-22 - cromosoma X
-23 - cromosoma Y
+El modelo debe tener exactamente estas 24 clases y en este orden:
 
-NOTAS IMPORTANTES
------------------
-- NO se incluye el archivo .pt en el repositorio (pesado, derechos)
-- El modelo DEBE ser un archivo .pt de Ultralytics YOLO (v8 o v11)
-- Entrenado para 24 clases en el orden exacto de arriba
-- Si usa un modelo con diferente orden de clases, actualice la lista
-  NOMBRES_CLASES en funciones/modelo_cromosomas.py
+| ID | Clase |
+|---:|---|
+| 0 | cromosoma 1 |
+| 1 | cromosoma 2 |
+| 2 | cromosoma 3 |
+| ... | ... |
+| 21 | cromosoma 22 |
+| 22 | cromosoma X |
+| 23 | cromosoma Y |
 
-DÓNDE OBTENER EL MODELO
------------------------
-- Entrenar usted mismo con Ultralytics YOLO en dataset de cromosomas
-- Obtener de repositorios públicos (Kaggle, GitHub, papers académicos)
-- Solicitar a su docente si provee uno para la materia
+Si el modelo utiliza un orden diferente, es necesario actualizar `NOMBRES_CLASES` en:
 
-VERIFICACIÓN RÁPIDA
--------------------
+```text
+funciones/modelo_cromosomas.py
+```
+
+## Verificar el modelo
+
 Desde Python:
->>> from ultralytics import YOLO
->>> model = YOLO("models/best_24_chromosomes.pt")
->>> print(model.names)
-# Debe mostrar dict con 24 entradas: 0: 'cromosoma 1', ..., 23: 'cromosoma Y'
 
-SI EL MODELO NO EXISTE
-----------------------
+```python
+from ultralytics import YOLO
+
+model = YOLO("models/best_24_chromosomes.pt")
+
+print(model.names)
+```
+
+Debe mostrar **24 clases**, desde `cromosoma 1` hasta `cromosoma Y`.
+
+## ¿Dónde obtenerlo?
+
+El modelo puede:
+
+- Ser entrenado con un dataset de cromosomas.
+- Obtenerse de una fuente pública, verificando siempre su licencia y compatibilidad.
+
+## Si el modelo no existe
+
 La aplicación mostrará:
-"Modelo no encontrado. Coloque best_24_chromosomes.pt en la carpeta models/."
 
-No intente ejecutar análisis sin el modelo.
+```text
+Modelo no encontrado. Coloque best_24_chromosomes.pt en la carpeta models/.
+```
+
+Sin el archivo `.pt` no se puede realizar el análisis de imágenes.
