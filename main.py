@@ -1,8 +1,3 @@
-"""
-Punto de entrada principal de la aplicación.
-Inicia la interfaz gráfica Tkinter.
-"""
-
 import sys
 import tkinter as tk
 from tkinter import messagebox
@@ -17,10 +12,6 @@ from interfaz.interfaz import InterfazCromosomas
 
 
 def verificar_entorno():
-    """
-    Verificaciones básicas al inicio.
-    Retorna (ok: bool, mensaje: str)
-    """
     # Verificar Python version
     if sys.version_info < (3, 8):
         return False, f"Se requiere Python 3.8+. Versión actual: {sys.version}"
@@ -34,8 +25,6 @@ def verificar_entorno():
 
 
 def main():
-    """Función principal."""
-    # Verificaciones
     ok, msg = verificar_entorno()
     if not ok:
         # Mostrar error en consola y messagebox si Tkinter funciona

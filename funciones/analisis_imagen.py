@@ -1,8 +1,3 @@
-"""
-Módulo de análisis de imágenes - Programación Orientada a Objetos.
-Clase AnalizadorImagen: procesamiento, detección y anotación de imágenes.
-"""
-
 from pathlib import Path
 import cv2
 import numpy as np
@@ -10,22 +5,10 @@ from funciones.modelo_cromosomas import DetectorCromosomas
 
 
 class AnalizadorImagen:
-    """
-    Encapsula el procesamiento completo de una imagen de cromosomas:
-    - Cargar imagen
-    - Preparar/preprocesar si es necesario
-    - Ejecutar detección con el modelo
-    - Generar imagen anotada con bounding boxes y etiquetas
-    - Devolver resultados estructurados
-    """
+    
 
     def __init__(self, detector=None):
-        """
-        Inicializa el analizador.
 
-        Args:
-            detector: Instancia de DetectorCromosomas. Si es None, crea uno nuevo.
-        """
         self.detector = detector or DetectorCromosomas()
         self.imagen_original = None
         self.imagen_anotada = None
@@ -33,19 +16,7 @@ class AnalizadorImagen:
         self.ruta_imagen = None
 
     def cargar_imagen(self, ruta_imagen):
-        """
-        Carga una imagen desde disco.
-
-        Args:
-            ruta_imagen: str o Path a la imagen
-
-        Returns:
-            numpy array (BGR) de la imagen cargada
-
-        Raises:
-            FileNotFoundError: si la imagen no existe
-            ValueError: si la imagen no es válida
-        """
+        
         ruta = Path(ruta_imagen)
         if not ruta.exists():
             raise FileNotFoundError(f"Imagen no encontrada: {ruta}")
@@ -59,9 +30,7 @@ class AnalizadorImagen:
         return self.imagen_original
 
     def cargar_imagen_desde_array(self, array_imagen):
-        """
-        Carga una imagen desde un array numpy.
-        """
+
         if array_imagen is None or not isinstance(array_imagen, np.ndarray):
             raise ValueError("Array de imagen inválido")
 
@@ -70,28 +39,13 @@ class AnalizadorImagen:
         return self.imagen_original
 
     def analizar(self, conf_threshold=0.25):
-        """
-        Ejecuta el análisis completo: detección + anotación.
-
-        Args:
-            conf_threshold: Umbral de confianza para el modelo
-
-        Returns:
-            dict con:
-                - "detecciones": lista de detecciones
-                - "imagen_anotada": numpy array con bounding boxes
-                - "resumen": dict con conteos por tipo
-        """
+        
         if self.imagen_original is None:
             raise ValueError("No hay imagen cargada. Use cargar_imagen() primero.")
 
-        # Ejecutar detección
         self.detecciones = self.detector.detectar(self.imagen_original, conf_threshold)
-
-        # Generar imagen anotada
         self.imagen_anotada = self._dibujar_detecciones(self.imagen_original, self.detecciones)
 
-        # Generar resumen
         resumen = self._generar_resumen(self.detecciones)
 
         return {
@@ -102,20 +56,10 @@ class AnalizadorImagen:
         }
 
     def _dibujar_detecciones(self, imagen, detecciones):
-        """
-        Dibuja bounding boxes y etiquetas sobre la imagen.
-
-        Args:
-            imagen: numpy array BGR
-            detecciones: lista de dicts con bbox normalizado (xywh)
-
-        Returns:
-            numpy array con anotaciones
-        """
+        
         imagen_anotada = imagen.copy()
         alto, ancho = imagen.shape[:2]
 
-        # Colores para cada clase (generados determinísticamente)
         colores = self._generar_colores_clases()
 
         for det in detecciones:
@@ -155,10 +99,7 @@ class AnalizadorImagen:
         return imagen_anotada
 
     def _generar_colores_clases(self):
-        """
-        Genera colores distintos para cada clase (determinístico).
-        """
-        np.random.seed(42)  # Seed fijo para consistencia
+        np.random.seed(42)  
         colores = []
         for i in range(24):
             # Generar color en HSV y convertir a BGR para mejor distribución
@@ -169,9 +110,7 @@ class AnalizadorImagen:
         return colores
 
     def _generar_resumen(self, detecciones):
-        """
-        Genera un resumen de conteos por tipo de cromosoma.
-        """
+        
         resumen = {}
         for det in detecciones:
             nombre = det["nombre_clase"]
@@ -195,12 +134,6 @@ class AnalizadorImagen:
         return self.detecciones
 
     def guardar_imagen_anotada(self, ruta_salida):
-        """
-        Guarda la imagen anotada en disco.
-
-        Args:
-            ruta_imagen: Path donde guardar
-        """
         if self.imagen_anotada is None:
             raise ValueError("No hay imagen anotada. Ejecute analizar() primero.")
 

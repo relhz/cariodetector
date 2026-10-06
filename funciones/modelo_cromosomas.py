@@ -21,17 +21,9 @@ NOMBRES_CLASES = [
 
 
 class DetectorCromosomas:
-    """
-    Encapsula el modelo YOLO para detección de cromosomas.
-    """
 
     def __init__(self, ruta_modelo=None):
-        """
-        Inicializa el detector.
-
-        Args:
-            ruta_modelo: Path al archivo .pt. Si es None, usa models/best_24_chromosomes.pt
-        """
+        
         if ruta_modelo is None:
             base_dir = Path(__file__).resolve().parent.parent
             ruta_modelo = base_dir / "models" / "best_24_chromosomes.pt"
@@ -41,10 +33,7 @@ class DetectorCromosomas:
         self._cargado = False
 
     def cargar_modelo(self):
-        """
-        Carga el modelo YOLO desde disco.
-        Lanza excepción si el archivo no existe o hay error al cargar.
-        """
+        
         if not self.ruta_modelo.exists():
             raise FileNotFoundError(
                 f"Modelo no encontrado: {self.ruta_modelo}. "
@@ -61,29 +50,11 @@ class DetectorCromosomas:
             raise Exception(f"Error cargando modelo: {e}")
 
     def esta_cargado(self):
-        """Retorna True si el modelo está cargado y listo."""
+        
         return self._cargado and self.modelo is not None
 
     def detectar(self, imagen, conf_threshold=0.25):
-        """
-        Ejecuta inferencia sobre una imagen.
-
-        Args:
-            imagen: numpy array (OpenCV BGR) o ruta a archivo de imagen
-            conf_threshold: Umbral de confianza (0.0 a 1.0)
-
-        Returns:
-            Lista de diccionarios con detecciones:
-            [
-                {
-                    "clase_id": int,
-                    "nombre_clase": str,
-                    "confianza": float,
-                    "bbox": [x, y, w, h]  # formato xywh normalizado 0-1
-                },
-                ...
-            ]
-        """
+        
         if not self.esta_cargado():
             self.cargar_modelo()
 
@@ -120,10 +91,7 @@ class DetectorCromosomas:
             raise Exception(f"Error durante inferencia: {e}")
 
     def _obtener_nombre_clase(self, clase_id):
-        """
-        Obtiene el nombre de la clase.
-        Prioridad: nombres del modelo cargado > lista por defecto.
-        """
+        
         if self.modelo and hasattr(self.modelo, "names"):
             nombres_modelo = self.modelo.names
             if isinstance(nombres_modelo, dict) and clase_id in nombres_modelo:
@@ -137,17 +105,14 @@ class DetectorCromosomas:
 
         return f"clase_desconocida_{clase_id}"
 
-
-# Función de conveniencia para uso simple
 def crear_detector():
-    """Crea e inicializa un detector listo para usar."""
+    
     detector = DetectorCromosomas()
     detector.cargar_modelo()
     return detector
 
 
 if __name__ == "__main__":
-    # Prueba rápida
     try:
         detector = crear_detector()
         print("Detector listo")
