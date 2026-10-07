@@ -1,8 +1,3 @@
-"""
-Módulo para cargar y usar el modelo YOLO de detección de cromosomas.
-Responsabilidad exclusiva: modelo de IA.
-"""
-
 from pathlib import Path
 from ultralytics import YOLO
 import numpy as np
@@ -60,19 +55,19 @@ class DetectorCromosomas:
 
         try:
             # Ultralytics acepta numpy array o ruta
-            resultados = self.modelo(imagen, conf=conf_threshold, verbose=False)
+            resultados = self.modelo(imagen, conf=conf_threshold, verbose=False) # type: ignore
 
             detecciones = []
 
             for resultado in resultados:
-                boxes = resultado.boxes
+                boxes = resultado.boxes # type: ignore
                 if boxes is None:
                     continue
 
                 # Obtener datos de las cajas
-                xywhn = boxes.xywhn.cpu().numpy()  # normalizado
-                confs = boxes.conf.cpu().numpy()
-                cls_ids = boxes.cls.cpu().numpy().astype(int)
+                xywhn = boxes.xywhn.cpu().numpy()  # normalizado # type: ignore
+                confs = boxes.conf.cpu().numpy()                 # type: ignore
+                cls_ids = boxes.cls.cpu().numpy().astype(int)    # type: ignore
 
                 for i in range(len(cls_ids)):
                     clase_id = cls_ids[i]

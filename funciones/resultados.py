@@ -72,7 +72,7 @@ def formatear_resumen_texto(resumen):
         else:
             count = data
             lineas.append(f"{nombre:15s}  {count:2d} detecciones")
-        total += count
+        total += count      # type: ignore
 
     lineas.insert(0, f"Total: {total} cromosomas detectados")
     lineas.append("-" * 40)

@@ -104,8 +104,8 @@ class AnalizadorImagen:
         for i in range(24):
             # Generar color en HSV y convertir a BGR para mejor distribución
             hue = int(180 * i / 24)
-            color_hsv = np.uint8([[[hue, 255, 200]]])
-            color_bgr = cv2.cvtColor(color_hsv, cv2.COLOR_HSV2BGR)[0][0]
+            color_hsv = np.uint8([[[hue, 255, 200]]]) # type: ignore
+            color_bgr = cv2.cvtColor(color_hsv, cv2.COLOR_HSV2BGR)[0][0] # type: ignore
             colores.append(tuple(int(c) for c in color_bgr))
         return colores
 

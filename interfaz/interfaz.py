@@ -38,6 +38,25 @@ class InterfazCromosomas:
         self.imagen_analizada_tk = None
         self.id_analisis_guardado = None
 
+        # Estado para zoom/pan sincronizados
+        # Datos de imagen original
+        self.img_orig_pil = None  # PIL Image original (RGB)
+        self.img_orig_cv = None  # OpenCV original (BGR)
+        self.img_anal_cv = None  # OpenCV anotada (BGR)
+
+        # Transformación para cada canvas: scale y offset
+        self.scale_orig = 1.0
+        self.scale_anal = 1.0
+        self.offset_x_orig = 0
+        self.offset_y_orig = 0
+        self.offset_x_anal = 0
+        self.offset_y_anal = 0
+
+        # Estado de pan
+        self._dragging = False
+        self._last_x = 0
+        self._last_y = 0
+
         # Inicializar UI
         self._crear_interfaz()
         self._verificar_modelo_al_inicio()
@@ -71,13 +90,22 @@ class InterfazCromosomas:
                                          command=self._mostrar_historial, width=12)
         self.btn_historial.pack(side=tk.LEFT, padx=5)
 
+        self.btn_reset_zoom = ttk.Button(frame_controles, text="Ajustar a ventana",
+                                         command=self._reset_zoom, width=16)
+        self.btn_reset_zoom.pack(side=tk.LEFT, padx=5)
+
         # ===== ÁREA DE IMÁGENES =====
         frame_imagenes = ttk.Frame(main_frame)
         frame_imagenes.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
+        # Configurar grid para que ambos paneles se expandan
+        frame_imagenes.columnconfigure(0, weight=1)
+        frame_imagenes.columnconfigure(1, weight=1)
+        frame_imagenes.rowconfigure(0, weight=1)
+
         # Imagen original
         frame_orig = ttk.LabelFrame(frame_imagenes, text="Imagen original", padding=5)
-        frame_orig.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        frame_orig.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
 
         self.canvas_original = tk.Canvas(frame_orig, bg="#f0f0f0", highlightthickness=1,
                                           highlightbackground="#ccc")
@@ -85,7 +113,7 @@ class InterfazCromosomas:
 
         # Imagen analizada
         frame_anal = ttk.LabelFrame(frame_imagenes, text="Imagen analizada", padding=5)
-        frame_anal.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        frame_anal.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
 
         self.canvas_analizada = tk.Canvas(frame_anal, bg="#f0f0f0", highlightthickness=1,
                                            highlightbackground="#ccc")
@@ -178,6 +206,8 @@ class InterfazCromosomas:
             self.btn_analizar.config(state=tk.NORMAL)
             self.btn_guardar.config(state=tk.DISABLED)
             self.id_analisis_guardado = None
+            # Configurar eventos de zoom/pan para ambos canvas
+            self._configurar_zoom_pan()
             self.var_estado.set(f"Imagen cargada: {Path(ruta).name}")
         except Exception as e:
             messagebox.showerror("Error cargando imagen", str(e))
@@ -222,6 +252,8 @@ class InterfazCromosomas:
             messagebox.showerror("Error durante análisis", f"Ocurrió un error:\n{e}")
             self.var_estado.set("Error durante análisis")
         finally:
+            # Configurar eventos de zoom/pan para ambos canvas
+            self._configurar_zoom_pan()
             self.btn_analizar.config(state=tk.NORMAL)
 
     def _mostrar_imagen_en_canvas(self, imagen_cv, canvas):
@@ -236,38 +268,23 @@ class InterfazCromosomas:
         imagen_rgb = cv2.cvtColor(imagen_cv, cv2.COLOR_BGR2RGB)
         imagen_pil = Image.fromarray(imagen_rgb)
 
-        # Obtener tamaño del canvas
-        canvas.update_idletasks()
-        cw = canvas.winfo_width()
-        ch = canvas.winfo_height()
-
-        if cw <= 1 or ch <= 1:
-            cw, ch = 500, 400  # fallback
-
-        # Escalar manteniendo aspect ratio
-        img_w, img_h = imagen_pil.size
-        escala = min(cw / img_w, ch / img_h, 1.0)  # no ampliar
-        nuevo_w = max(1, int(img_w * escala))
-        nuevo_h = max(1, int(img_h * escala))
-
-        imagen_pil = imagen_pil.resize((nuevo_w, nuevo_h), Image.Resampling.LANCZOS)
-        imagen_tk = ImageTk.PhotoImage(imagen_pil)
-
-        # Guardar referencia para evitar garbage collection
+        # Guardar referencias según canvas
         if canvas == self.canvas_original:
-            self.imagen_original_tk = imagen_tk
+            self.img_orig_pil = imagen_pil
+            self.img_orig_cv = imagen_cv
         else:
-            self.imagen_analizada_tk = imagen_tk
+            self.img_anal_cv = imagen_cv
 
-        # Limpiar y dibujar centrado
-        canvas.delete("all")
-        x = (cw - nuevo_w) // 2
-        y = (ch - nuevo_h) // 2
-        canvas.create_image(x, y, anchor=tk.NW, image=imagen_tk)
+        # Ajustar a ventana con zoom sincronizado (reset)
+        self._reset_zoom()
 
     def _limpiar_imagen_analizada(self):
         self.canvas_analizada.delete("all")
         self.imagen_analizada_tk = None
+        self.img_anal_cv = None
+        self.scale_anal = 1.0
+        self.offset_x_anal = 0
+        self.offset_y_anal = 0
 
     def _llenar_tabla(self, detecciones):
         """Llena el Treeview con las detecciones."""
@@ -417,6 +434,181 @@ class InterfazCromosomas:
 
         # Botón cerrar
         ttk.Button(win, text="Cerrar", command=win.destroy).pack(pady=(0, 10))
+
+    # ===== Métodos para zoom y pan sincronizados =====
+    def _redibujar_canvas(self, canvas):
+        """Redibuja la imagen y sus overlays en el canvas con la transformación actual."""
+        canvas.delete("all")
+        if canvas == self.canvas_original:
+            pil_img = self.img_orig_pil
+            if pil_img is None:
+                return
+            scale = self.scale_orig
+            offset_x = self.offset_x_orig
+            offset_y = self.offset_y_orig
+            # Crear imagen escalada
+            new_w = max(1, int(pil_img.size[0] * scale))
+            new_h = max(1, int(pil_img.size[1] * scale))
+            img_resized = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            self.imagen_original_tk = ImageTk.PhotoImage(img_resized)
+            canvas.create_image(offset_x, offset_y, anchor=tk.NW, image=self.imagen_original_tk)
+        else:
+            cv_img = self.img_anal_cv
+            if cv_img is None:
+                return
+            scale = self.scale_anal
+            offset_x = self.offset_x_anal
+            offset_y = self.offset_y_anal
+            # Convertir y escalar
+            img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(img_rgb)
+            new_w = max(1, int(pil_img.size[0] * scale))
+            new_h = max(1, int(pil_img.size[1] * scale))
+            img_resized = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            self.imagen_analizada_tk = ImageTk.PhotoImage(img_resized)
+            canvas.create_image(offset_x, offset_y, anchor=tk.NW, image=self.imagen_analizada_tk)
+
+    def _reset_zoom(self):
+        """Ajusta ambas imágenes al tamaño del canvas manteniendo relación de aspecto."""
+        if self.img_orig_pil is not None:
+            cw = self.canvas_original.winfo_width()
+            ch = self.canvas_original.winfo_height()
+            if cw <= 1 or ch <= 1:
+                cw, ch = 500, 400
+            img_w, img_h = self.img_orig_pil.size
+            escala = min(cw / img_w, ch / img_h)
+            if escala <= 0:
+                escala = 1.0
+            self.scale_orig = escala
+            new_w = int(img_w * escala)
+            new_h = int(img_h * escala)
+            self.offset_x_orig = (cw - new_w) // 2
+            self.offset_y_orig = (ch - new_h) // 2
+            self._redibujar_canvas(self.canvas_original)
+
+        if self.img_anal_cv is not None:
+            cw = self.canvas_analizada.winfo_width()
+            ch = self.canvas_analizada.winfo_height()
+            if cw <= 1 or ch <= 1:
+                cw, ch = 500, 400
+            img_w, img_h = self.img_anal_cv.shape[1], self.img_anal_cv.shape[0]
+            escala = min(cw / img_w, ch / img_h)
+            if escala <= 0:
+                escala = 1.0
+            self.scale_anal = escala
+            new_w = int(img_w * escala)
+            new_h = int(img_h * escala)
+            self.offset_x_anal = (cw - new_w) // 2
+            self.offset_y_anal = (ch - new_h) // 2
+            self._redibujar_canvas(self.canvas_analizada)
+
+    def _on_configure(self, event):
+        """Reacciona al redimensionar canvas para ajustar imágenes."""
+        self._reset_zoom()
+
+    def _on_mouse_wheel(self, event):
+        """Zoom con rueda del mouse, centrado en cursor. Sincronizado entre ambos canvas."""
+        canvas = event.widget
+        # Determinar factor de zoom
+        if event.delta > 0:
+            factor = 1.1  # acercar
+        else:
+            factor = 0.9  # alejar
+
+        self._apply_zoom(canvas, event.x, event.y, factor)
+
+    def _on_mouse_wheel_linux(self, event):
+        """Soporte para rueda del mouse en Linux (Button-4/5)."""
+        canvas = event.widget
+        if event.num == 4:
+            factor = 1.1
+        elif event.num == 5:
+            factor = 0.9
+        else:
+            return
+        self._apply_zoom(canvas, event.x, event.y, factor)
+
+    def _apply_zoom(self, canvas, mouse_x, mouse_y, factor):
+        """Aplica zoom centrado en posición del mouse y sincroniza ambos canvas."""
+        # Limitar zoom entre 10% y 800%
+        if canvas == self.canvas_original:
+            new_scale = self.scale_orig * factor
+            if new_scale < 0.1 or new_scale > 8.0:
+                return
+            # Calcular nuevo offset
+            self.offset_x_orig = mouse_x - (mouse_x - self.offset_x_orig) * factor
+            self.offset_y_orig = mouse_y - (mouse_y - self.offset_y_orig) * factor
+            self.scale_orig = new_scale
+            self.scale_anal = new_scale
+            self.offset_x_anal = mouse_x - (mouse_x - self.offset_x_anal) * factor
+            self.offset_y_anal = mouse_y - (mouse_y - self.offset_y_anal) * factor
+            self._redibujar_canvas(self.canvas_original)
+            self._redibujar_canvas(self.canvas_analizada)
+        else:
+            new_scale = self.scale_anal * factor
+            if new_scale < 0.1 or new_scale > 8.0:
+                return
+            self.offset_x_anal = mouse_x - (mouse_x - self.offset_x_anal) * factor
+            self.offset_y_anal = mouse_y - (mouse_y - self.offset_y_anal) * factor
+            self.scale_anal = new_scale
+            self.scale_orig = new_scale
+            self.offset_x_orig = mouse_x - (mouse_x - self.offset_x_orig) * factor
+            self.offset_y_orig = mouse_y - (mouse_y - self.offset_y_orig) * factor
+            self._redibujar_canvas(self.canvas_original)
+            self._redibujar_canvas(self.canvas_analizada)
+
+    def _on_mouse_press(self, event):
+        """Inicia pan (arrastre) con botón izquierdo."""
+        canvas = event.widget
+        canvas.configure(cursor="fleur")
+        self._dragging = True
+        self._last_x = event.x
+        self._last_y = event.y
+
+    def _on_mouse_release(self, event):
+        """Finaliza pan."""
+        canvas = event.widget
+        canvas.configure(cursor="")
+        self._dragging = False
+
+    def _on_mouse_move(self, event):
+        """Mueve imagen durante pan - sincronizado entre ambos canvas."""
+        if not self._dragging:
+            return
+        dx = event.x - self._last_x
+        dy = event.y - self._last_y
+        self._last_x = event.x
+        self._last_y = event.y
+
+        # Sincronizar desplazamiento entre ambos canvas
+        self.offset_x_orig += dx
+        self.offset_y_orig += dy
+        self.offset_x_anal += dx
+        self.offset_y_anal += dy
+
+        self._redibujar_canvas(self.canvas_original)
+        self._redibujar_canvas(self.canvas_analizada)
+
+    def _configurar_zoom_pan(self):
+        """Configura eventos de zoom y pan para ambos canvas."""
+        # Eliminar eventos previos enlazando con bindtags
+        for canvas in [self.canvas_original, self.canvas_analizada]:
+            canvas.unbind("<MouseWheel>")
+            canvas.unbind("<Button-4>")
+            canvas.unbind("<Button-5>")
+            canvas.unbind("<ButtonPress-1>")
+            canvas.unbind("<ButtonRelease-1>")
+            canvas.unbind("<B1-Motion>")
+            canvas.unbind("<Configure>")
+
+            # Configurar eventos
+            canvas.bind("<MouseWheel>", self._on_mouse_wheel)
+            canvas.bind("<Button-4>", self._on_mouse_wheel_linux)
+            canvas.bind("<Button-5>", self._on_mouse_wheel_linux)
+            canvas.bind("<ButtonPress-1>", self._on_mouse_press)
+            canvas.bind("<ButtonRelease-1>", self._on_mouse_release)
+            canvas.bind("<B1-Motion>", self._on_mouse_move)
+            canvas.bind("<Configure>", self._on_configure)
 
 
 def main():
