@@ -29,3 +29,6 @@ Thumbs.db
 
 # Imagenes de prueba
 assets/imagenes/
+
+# Imagenes analizadas
+assets/imagenes_analizadas/
