@@ -17,7 +17,7 @@ El sistema utiliza un modelo **YOLO preentrenado** para detectar y clasificar lo
 - [Configuración del modelo](#-configuración-del-modelo)
 - [Ejecución](#-ejecución)
 - [Flujo de uso](#-flujo-de-uso)
-- [Dashboard web(Streamlit)](#dashboard-web)
+- [Dashboard web(Streamlit)](#-dashboard-web)
 - [Estructura del proyecto](#-estructura-del-proyecto)
 - [Clases de cromosomas](#-clases-de-cromosomas)
 - [Errores comunes](#-errores-comunes)
