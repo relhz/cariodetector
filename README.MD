@@ -329,6 +329,7 @@ analizador-cromosomas/
 | `analisis_imagen.py` | Procesamiento y análisis de imágenes |
 | `modelo_cromosomas.py` | Gestión del modelo de detección |
 | `resultados.py` | Procesamiento y presentación de resultados |
+| `dashboard/` | Dashboard web en Streamlit (detección, revisión, estadísticas) |
 | `utils/` | Configuraciones y utilidades |
 | `db_config.py` | Configuración de conexión a MySQL |
 | `models/` | Archivos relacionados con el modelo YOLO |
