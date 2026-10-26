@@ -296,6 +296,14 @@ analizador-cromosomas/
 │   ├── modelo_cromosomas.py
 │   └── resultados.py
 │
+├── dashboard/
+│   ├── app.py
+│   ├── db.py
+│   ├── modelo.py
+│   ├── requirements.txt
+│   ├── README.md
+│   └── modelo_info/
+│
 ├── utils/
 │   └── db_config.py
 │
