@@ -3,15 +3,32 @@ import cv2
 import numpy as np
 import pandas as pd
 import altair as alt
+import base64
+import html
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from modelo import DetectorCromosomas
-from db import cargar_datos, guardar_analisis, nombre_par, PARES_AUTOSOMICOS, PARES_ORDEN
+from db import (cargar_datos, guardar_analisis, cargar_revision, nombre_par,
+                PARES_AUTOSOMICOS, PARES_ORDEN)
 
 RUTA_PESOS = "models/best_24_chromosomes.pt"
 CONF_UMBRAL = 0.35   # confianza mínima para aceptar una detección
 IOU_UMBRAL = 0.40    # solapamiento máximo entre cajas (evita duplicados)
+CONF_REVISION = 0.50  # por debajo de esta confianza, la detección se marca para revisar
+# Archivo de la pestaña "Sobre el modelo" (results.csv, el registro del entrenamiento)
+RUTA_INFO = Path(__file__).resolve().parent / "modelo_info"
+# Datos del entrenamiento, leídos de los metadatos de los pesos
+INFO_MODELO = {
+    "Modelo base": "YOLOv8s (preentrenado en COCO)",
+    "Tarea": "Detección de objetos, 24 clases (A1…G22, X, Y)",
+    "Épocas": "60",
+    "Tamaño de imagen": "640 px",
+    "Batch": "16",
+    "Optimizador": "AdamW",
+    "Fecha de entrenamiento": "3 de octubre de 2026",
+    "Librería": "Ultralytics 8.4.172",
+}
 # Carpeta (en la raíz del repo) donde se copian las imágenes guardadas desde el dashboard
 CARPETA_IMAGENES = Path(__file__).resolve().parent.parent / "assets" / "imagenes_analizadas"
 
@@ -248,6 +265,8 @@ st.title("🧬 CarioDetector")
 
 if "historial_pruebas" not in st.session_state:
     st.session_state.historial_pruebas = []
+if "n_runs" not in st.session_state:
+    st.session_state.n_runs = 0
 
 
 @st.cache_resource
@@ -284,6 +303,422 @@ def explicar(que, como):
     st.caption(f"**Qué muestra:** {que}  \n**Cómo leerlo:** {como}")
 
 
+# ---------- Revisión: reglas simples para decidir si una imagen necesita ojo humano ----------
+def motivos_revision(total, conteo, n_baja):
+    """Lista de motivos por los que conviene revisar una imagen (vacía = sin motivos)."""
+    motivos = []
+    if total != 46:
+        motivos.append(f"Total detectado: {total} (se esperan 46)")
+    n_pares = sum(1 for p in PARES_AUTOSOMICOS if conteo.get(p, 0) != 2)
+    if n_pares:
+        motivos.append(f"{n_pares} par(es) autosómico(s) con cantidad distinta de 2")
+    x, y = conteo.get("X", 0), conteo.get("Y", 0)
+    if (x, y) not in ((2, 0), (1, 1)):
+        motivos.append(f"Combinación X/Y inusual (X={x}, Y={y}); se espera XX o XY")
+    if n_baja:
+        motivos.append(f"{n_baja} detección(es) con confianza menor a {CONF_REVISION}")
+    return motivos
+
+
+def mostrar_semaforo(motivos):
+    if not motivos:
+        st.success("🟢 **OK**: sin motivos de revisión según los criterios del sistema. "
+                   "Igual debe ser validado por un profesional.")
+    else:
+        st.warning("🟠 **Revisar**\n\n" + "\n".join(f"- {m}" for m in motivos))
+
+
+def _orden_par(par):
+    return PARES_ORDEN.index(par) if par in PARES_ORDEN else 99
+
+
+def dibujar(imagen, dets):
+    """Dibuja las cajas: verde (confianza suficiente), naranja (confianza baja) y
+    violeta (etiqueta corregida por el profesional)."""
+    salida = imagen.copy()
+    for d in dets:
+        x1, y1, x2, y2 = [int(v) for v in d["caja"]]
+        if d["clase_final"] != d["clase_modelo"]:
+            color = (200, 0, 200)
+        elif d["confianza"] < CONF_REVISION:
+            color = (0, 140, 255)
+        else:
+            color = (0, 200, 0)
+        cv2.rectangle(salida, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(salida, f"{d['clase_final']} {d['confianza']:.2f}", (x1, max(14, y1 - 5)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+    return salida
+
+
+def detecciones_normalizadas(crudas):
+    """Pasa las detecciones del modelo al formato interno (clase en formato A1…G22)."""
+    return [{"caja": tuple(int(v) for v in d["caja"]),
+             "clase_modelo": nombre_par(d["clase"]),
+             "confianza": float(d["confianza"])} for d in crudas]
+
+
+def informe_html(nombre, conteo, motivos, filas, png_b64=None, parametros=None, notas=None):
+    """Informe de un análisis como página HTML (se abre en el navegador y se puede
+    imprimir o guardar como PDF)."""
+    esc = html.escape
+    etiquetas = {NORMAL: ("Normal", "#E8F5E9"), DE_MAS: ("De más", "#FFEBEE"),
+                 DE_MENOS: ("De menos", "#FFF3E0"), SEXUAL: ("Según sexo", "#ECEFF1")}
+    pares = ""
+    for p in PARES_ORDEN:
+        n = conteo.get(p, 0)
+        texto, fondo = etiquetas[estado_par(p, n)]
+        pares += f'<tr style="background:{fondo}"><td>{p}</td><td>{n}</td><td>{texto}</td></tr>'
+    dets = "".join(f"<tr><td>{esc(str(c))}</td><td>{conf:.2f}</td></tr>"
+                   for c, conf in sorted(filas, key=lambda f: (_orden_par(f[0]), -f[1])))
+    if motivos:
+        caja = ('<div class="caja rev"><b>Revisar</b><ul>'
+                + "".join(f"<li>{esc(m)}</li>" for m in motivos) + "</ul></div>")
+    else:
+        caja = '<div class="caja ok"><b>Sin motivos de revisión</b> según los criterios del sistema.</div>'
+    imagen = f'<img src="data:image/png;base64,{png_b64}" alt="Detecciones">' if png_b64 else ""
+    params = "".join(f"<li>{esc(k)}: {esc(str(v))}</li>" for k, v in (parametros or {}).items())
+    extra = "".join(f"<p>{esc(n)}</p>" for n in (notas or []))
+    return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
+<title>Informe CarioDetector</title><style>
+body{{font-family:Arial,sans-serif;max-width:900px;margin:24px auto;padding:0 16px;color:#222}}
+h1{{font-size:22px}} h2{{font-size:17px;margin-top:26px}}
+table{{border-collapse:collapse;width:100%;font-size:13px}} td,th{{border:1px solid #ccc;padding:4px 8px;text-align:left}}
+th{{background:#f0f0f0}} img{{max-width:100%;border:1px solid #ccc}}
+.caja{{padding:10px 14px;border-radius:6px;margin:12px 0}} .ok{{background:#E8F5E9}} .rev{{background:#FFF3E0}}
+.aviso{{font-size:12px;color:#555;border-top:1px solid #ccc;margin-top:28px;padding-top:10px}}
+</style></head><body>
+<h1>Informe de análisis · CarioDetector</h1>
+<p>Imagen: <b>{esc(nombre)}</b><br>Generado: {datetime.now():%d/%m/%Y %H:%M}</p>
+{caja}{extra}{imagen}
+<h2>Conteo por par</h2>
+<p>Se esperan 2 copias en cada par del 1 al 22. X e Y se interpretan según el sexo.</p>
+<table><tr><th>Par</th><th>Copias detectadas</th><th>Estado</th></tr>{pares}</table>
+<h2>Detecciones</h2><table><tr><th>Clase</th><th>Confianza</th></tr>{dets}</table>
+<h2>Parámetros</h2><ul>{params}</ul>
+<p class="aviso">Herramienta de apoyo, no de diagnóstico. Toda alerta debe ser validada por un
+profesional. Solo evalúa alteraciones numéricas (cantidad de copias por par), no estructurales.
+El modelo puede confundir pares de tamaño y forma parecidos y cromosomas superpuestos.</p>
+</body></html>"""
+
+
+def png_base64(imagen, ancho_max=1200):
+    alto, ancho = imagen.shape[:2]
+    if ancho > ancho_max:
+        imagen = cv2.resize(imagen, (ancho_max, int(alto * ancho_max / ancho)))
+    ok, buf = cv2.imencode(".png", imagen)
+    return base64.b64encode(buf.tobytes()).decode("ascii") if ok else None
+
+
+def resultado_revision(total, conteo, motivos, observ):
+    """Datos para la tabla `resultados` cuando un profesional confirma la revisión.
+    El cariotipo se arma con el total y la combinación de cromosomas sexuales
+    (por ejemplo '46,XX'); si X/Y no es XX ni XY queda con signos de pregunta."""
+    x, y = conteo.get("X", 0), conteo.get("Y", 0)
+    sexo = {(2, 0): "XX", (1, 1): "XY"}.get((x, y), "??")
+    alteracion = "; ".join(motivos) if motivos else "Sin alteraciones numéricas detectadas"
+    return {"cariotipo": f"{total},{sexo}"[:30], "alteracion": alteracion[:100],
+            "observacion": observ}
+
+
+def mostrar_resultado(imagen, u):
+    """Resultado de una detección: revisión de etiquetas, semáforo, conteo, guardado e informe.
+    El estado vive en session_state, así que sobrevive a los reruns de Streamlit."""
+    guardado = bool(u.get("guardado_id"))
+    originales = u["detecciones"]
+    base = pd.DataFrame({
+        "N°": list(range(1, len(originales) + 1)),
+        "Clase del modelo": [d["clase_modelo"] for d in originales],
+        "Confianza": [round(d["confianza"], 3) for d in originales],
+        "Clase final": [d["clase_modelo"] for d in originales],
+        "Descartar": [False] * len(originales),
+    })
+    opciones = list(PARES_ORDEN) + sorted(set(base["Clase del modelo"]) - set(PARES_ORDEN))
+
+    c_img = st.container()
+    c_sem = st.container()
+
+    st.subheader("Revisión de etiquetas")
+    st.caption("Si el modelo se equivocó de par, cambiá la **Clase final**. Si detectó algo que no "
+               "es un cromosoma, tildá **Descartar**. El conteo, el semáforo y la imagen se "
+               "actualizan con tus cambios.")
+    editado = st.data_editor(
+        base, hide_index=True,
+        disabled=True if guardado else ["N°", "Clase del modelo", "Confianza"],
+        column_config={
+            "Clase final": st.column_config.SelectboxColumn("Clase final", options=opciones,
+                                                            required=True),
+            "Descartar": st.column_config.CheckboxColumn("Descartar"),
+        },
+        key=f"editor_{u['run']}")
+
+    dets, descartes = [], []
+    for d, (_, fila) in zip(originales, editado.iterrows()):
+        if fila["Descartar"]:
+            descartes.append(d)
+        else:
+            dets.append({**d, "clase_final": fila["Clase final"]})
+    cambios = [d for d in dets if d["clase_final"] != d["clase_modelo"]]
+    conteo = Counter(d["clase_final"] for d in dets)
+    n_baja = sum(1 for d in dets if d["confianza"] < CONF_REVISION)
+    motivos = motivos_revision(len(dets), conteo, n_baja)
+    dibujada = dibujar(imagen, dets)
+
+    with c_img:
+        st.write(f"El modelo detectó {len(originales)} cromosomas; tras la revisión quedan {len(dets)}.")
+        st.image(dibujada, channels="BGR",
+                 caption="Verde: confianza suficiente · Naranja: confianza baja, conviene revisar · "
+                         "Violeta: etiqueta corregida")
+    with c_sem:
+        mostrar_semaforo(motivos)
+
+    st.subheader("Conteo por par")
+    st.dataframe([{"Par": p, "Cantidad detectada": n}
+                  for p, n in sorted(conteo.items(), key=lambda t: _orden_par(t[0]))])
+
+    st.subheader("Guardar y descargar")
+    revisado = st.checkbox("Confirmo que un profesional revisó este análisis",
+                           key=f"rev_{u['run']}", disabled=guardado)
+    if guardado:
+        st.success(f"Guardado en la base de datos (análisis {u['guardado_id']}). "
+                   "Ya aparece en las pestañas Dashboard y Gráficos.")
+    elif st.button("Guardar en la base de datos", key=f"guardar_{u['run']}"):
+        if revisado or cambios or descartes:
+            observ = (f"Revisado (dashboard): {len(cambios)} cambios de etiqueta, "
+                      f"{len(descartes)} descartes")
+        else:
+            observ = "Sin revisión manual (dashboard)"
+        try:
+            alto, ancho = imagen.shape[:2]
+            ruta = ruta_res = resultado = None
+            if u.get("bytes"):
+                CARPETA_IMAGENES.mkdir(parents=True, exist_ok=True)
+                marca = f"{datetime.now():%Y%m%d_%H%M%S}"
+                ruta = CARPETA_IMAGENES / f"{marca}_{u['archivo']}"
+                ruta.write_bytes(u["bytes"])
+                # imagen con las cajas dibujadas (es la "imagen_resultado" del estudio)
+                ruta_res = CARPETA_IMAGENES / f"{marca}_resultado_{Path(u['archivo']).stem}.png"
+                cv2.imwrite(str(ruta_res), dibujada)
+            if revisado:
+                resultado = resultado_revision(len(dets), conteo, motivos, observ)
+            todas = ([{**d, "descartada": False} for d in dets]
+                     + [{**d, "clase_final": None, "descartada": True} for d in descartes])
+            u["guardado_id"] = guardar_analisis(
+                u["archivo"], todas, ancho, alto, str(ruta) if ruta else None, observ,
+                imagen_resultado=str(ruta_res) if ruta_res else None, resultado=resultado)
+            st.cache_data.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"No se pudo guardar en MySQL: {e}")
+
+    filas = [(d["clase_final"], d["confianza"]) for d in dets]
+    tabla = pd.DataFrame({
+        "par": [d["clase_final"] for d in dets], "confianza": [d["confianza"] for d in dets],
+        "par_del_modelo": [d["clase_modelo"] for d in dets],
+        "x1": [d["caja"][0] for d in dets], "y1": [d["caja"][1] for d in dets],
+        "x2": [d["caja"][2] for d in dets], "y2": [d["caja"][3] for d in dets]})
+    notas = []
+    if cambios or descartes:
+        notas.append(f"Revisión manual: {len(cambios)} etiqueta(s) corregida(s) y "
+                     f"{len(descartes)} detección(es) descartada(s).")
+    if revisado:
+        notas.append("Un profesional confirmó haber revisado este análisis.")
+    informe = informe_html(
+        u["archivo"], conteo, motivos, filas, png_base64(dibujada),
+        {"Confianza mínima (conf)": CONF_UMBRAL, "IoU máximo (iou)": IOU_UMBRAL,
+         "Pesos": RUTA_PESOS}, notas)
+    d1, d2 = st.columns(2)
+    d1.download_button("Descargar informe (HTML)", informe.encode("utf-8"),
+                       f"informe_{Path(u['archivo']).stem}.html", "text/html",
+                       key=f"dl_html_{u['run']}")
+    d2.download_button("Descargar detecciones (CSV)", tabla.to_csv(index=False).encode("utf-8"),
+                       f"detecciones_{Path(u['archivo']).stem}.csv", "text/csv",
+                       key=f"dl_csv_{u['run']}")
+    st.caption("El informe se abre en el navegador; desde ahí se puede imprimir o guardar como PDF.")
+
+
+# ---------- Laboratorio de parámetros ----------
+def _resumen_deteccion(dets):
+    conteo = Counter(d["clase_modelo"] for d in dets)
+    n_baja = sum(1 for d in dets if d["confianza"] < CONF_REVISION)
+    pares = sum(1 for p in PARES_AUTOSOMICOS if conteo.get(p, 0) != 2)
+    return conteo, n_baja, pares
+
+
+def panel_laboratorio():
+    st.subheader("Laboratorio de parámetros")
+    explicar("cómo cambia lo que detecta el modelo al variar la confianza mínima (conf) y el "
+             "solapamiento máximo entre cajas (IoU).",
+             "subí una imagen, elegí valores y compará. Un IoU más alto deja pasar más cajas "
+             "solapadas (útil con cromosomas cruzados, pero puede traer duplicados); una confianza "
+             "más alta descarta las detecciones dudosas.")
+    subida = st.file_uploader("Imagen de prueba", type=["jpg", "jpeg", "png"], key="lab_subida")
+    if subida is None:
+        st.info("Subí una imagen para empezar.")
+        return
+    imagen = cv2.imdecode(np.frombuffer(subida.read(), np.uint8), cv2.IMREAD_COLOR)
+    c1, c2 = st.columns(2)
+    conf = c1.slider("Confianza mínima (conf)", 0.05, 0.90, float(CONF_UMBRAL), 0.05)
+    iou = c2.slider("IoU máximo entre cajas (iou)", 0.10, 0.90, float(IOU_UMBRAL), 0.05)
+
+    b1, b2 = st.columns(2)
+    if b1.button("Detectar con estos valores"):
+        dets = detecciones_normalizadas(modelo.detectar(imagen, conf=conf, iou=iou))
+        st.session_state.lab_uno = {"archivo": subida.name, "conf": conf, "iou": iou, "dets": dets}
+    if b2.button("Comparar varios valores de IoU"):
+        filas = []
+        barra = st.progress(0.0, text="Detectando…")
+        valores = [0.3, 0.4, 0.5, 0.6, 0.7]
+        for i, v in enumerate(valores):
+            dets = detecciones_normalizadas(modelo.detectar(imagen, conf=conf, iou=v))
+            conteo, n_baja, pares = _resumen_deteccion(dets)
+            filas.append({"IoU": v, "Cromosomas detectados": len(dets),
+                          "Pares con cantidad distinta de 2": pares,
+                          f"Detecciones con confianza < {CONF_REVISION}": n_baja})
+            barra.progress((i + 1) / len(valores), text="Detectando…")
+        barra.empty()
+        st.session_state.lab_barrido = {"archivo": subida.name, "conf": conf,
+                                        "tabla": pd.DataFrame(filas)}
+
+    uno = st.session_state.get("lab_uno")
+    if uno and uno["archivo"] == subida.name:
+        st.markdown(f"**Resultado con conf={uno['conf']:.2f} e iou={uno['iou']:.2f}**")
+        dets = [{**d, "clase_final": d["clase_modelo"]} for d in uno["dets"]]
+        conteo, n_baja, pares = _resumen_deteccion(uno["dets"])
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Cromosomas detectados", len(dets))
+        k2.metric("Pares con cantidad distinta de 2", pares)
+        k3.metric(f"Confianza < {CONF_REVISION}", n_baja)
+        mostrar_semaforo(motivos_revision(len(dets), conteo, n_baja))
+        st.image(dibujar(imagen, dets), channels="BGR")
+
+    barrido = st.session_state.get("lab_barrido")
+    if barrido and barrido["archivo"] == subida.name:
+        st.markdown(f"**Comparación de IoU con conf={barrido['conf']:.2f}**")
+        t = barrido["tabla"]
+        st.dataframe(t, hide_index=True)
+        lineas = alt.Chart(t).mark_line(point=True, color=AZUL).encode(
+            x=alt.X("IoU:Q", scale=alt.Scale(domain=[0.25, 0.75])),
+            y=alt.Y("Cromosomas detectados:Q", scale=alt.Scale(zero=False)),
+            tooltip=["IoU", "Cromosomas detectados"])
+        ref = alt.Chart(pd.DataFrame({"y": [46]})).mark_rule(
+            color=COLORES[3], strokeDash=[6, 4]).encode(y="y:Q")
+        st.altair_chart((lineas + ref).properties(width="container", height=240))
+        st.caption("La línea gris marca 46, el total esperado en una célula sin alteraciones "
+                   "numéricas. Elegir el IoU que más se acerque sin generar duplicados.")
+
+
+# ---------- Sobre el modelo ----------
+@st.cache_data(ttl=60)
+def _revision_cacheada():
+    return cargar_revision()
+
+
+def pestana_modelo():
+    st.subheader("Sobre el modelo")
+    st.markdown("El detector es un **YOLOv8s** que partió de pesos preentrenados con COCO y se "
+                "reentrenó (*fine-tuning*) con imágenes de cariotipos para reconocer los 24 tipos de "
+                "cromosoma. Lo que sigue describe cómo fue entrenado y qué tan bien funciona.")
+    st.table(pd.DataFrame({"Dato": list(INFO_MODELO), "Valor": list(INFO_MODELO.values())})
+             .set_index("Dato"))
+
+    ruta_csv = RUTA_INFO / "results.csv"
+    if ruta_csv.exists():
+        r = pd.read_csv(ruta_csv)
+        r.columns = [c.strip() for c in r.columns]
+        mejor = r.loc[r["metrics/mAP50-95(B)"].idxmax()]
+        st.markdown(f"#### Resultados en validación (mejor época: {int(mejor['epoch'])})")
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Precisión", f"{mejor['metrics/precision(B)']:.1%}")
+        k2.metric("Recall", f"{mejor['metrics/recall(B)']:.1%}")
+        k3.metric("mAP@50", f"{mejor['metrics/mAP50(B)']:.1%}")
+        k4.metric("mAP@50-95", f"{mejor['metrics/mAP50-95(B)']:.1%}")
+        with st.expander("¿Qué significa cada métrica?"):
+            st.markdown("""
+- **Precisión:** de todo lo que el modelo detectó, qué proporción era correcto.
+- **Recall:** de todos los cromosomas que había, qué proporción encontró.
+- **mAP@50:** resume precisión y recall para todas las clases; cuenta una detección como acertada si
+  su caja se solapa al menos 50 % con la real y la clase es correcta.
+- **mAP@50-95:** igual, pero más exigente: promedia solapamientos de 50 % a 95 %.
+- Son métricas **por cromosoma**, sobre imágenes de validación del mismo conjunto de datos. Un
+  cariotipo exige acertar los 46 a la vez, así que el desempeño por imagen completa es menor.
+""")
+        met = r[["epoch", "metrics/precision(B)", "metrics/recall(B)",
+                 "metrics/mAP50(B)", "metrics/mAP50-95(B)"]].rename(columns={
+            "metrics/precision(B)": "Precisión", "metrics/recall(B)": "Recall",
+            "metrics/mAP50(B)": "mAP@50", "metrics/mAP50-95(B)": "mAP@50-95"})
+        largo = met.melt("epoch", var_name="Métrica", value_name="Valor")
+        nombres = ["Precisión", "Recall", "mAP@50", "mAP@50-95"]
+        curva = alt.Chart(largo).mark_line().encode(
+            x=alt.X("epoch:Q", title="Época"),
+            y=alt.Y("Valor:Q", title="Valor", scale=alt.Scale(domain=[0, 1])),
+            color=alt.Color("Métrica:N", scale=alt.Scale(
+                domain=nombres, range=[AZUL, "#8E24AA", "#26A69A", "#4D4D4D"]),
+                legend=alt.Legend(orient="bottom", title=None)),
+            tooltip=["epoch", "Métrica", alt.Tooltip("Valor:Q", format=".3f")])
+        marca = alt.Chart(pd.DataFrame({"x": [int(mejor["epoch"])]})).mark_rule(
+            color=COLORES[3], strokeDash=[6, 4]).encode(x="x:Q")
+        g1, g2 = st.columns(2)
+        with g1:
+            st.markdown("**Métricas por época**")
+            explicar("cómo mejoró el modelo durante el entrenamiento.",
+                     "las curvas suben y se estabilizan; la línea gris es la mejor época, la "
+                     "que se guardó como pesos finales.")
+            st.altair_chart((curva + marca).properties(width="container", height=280))
+        perdida = r[["epoch", "train/box_loss", "val/box_loss"]].rename(columns={
+            "train/box_loss": "Entrenamiento", "val/box_loss": "Validación"}).melt(
+            "epoch", var_name="Conjunto", value_name="Pérdida")
+        with g2:
+            st.markdown("**Error de las cajas por época**")
+            explicar("qué tan bien ubica las cajas (menos es mejor).",
+                     "si la curva de validación se separa hacia arriba de la de entrenamiento, hay "
+                     "sobreajuste; acá se mantienen juntas.")
+            st.altair_chart(alt.Chart(perdida).mark_line().encode(
+                x=alt.X("epoch:Q", title="Época"), y=alt.Y("Pérdida:Q", scale=alt.Scale(zero=False)),
+                color=alt.Color("Conjunto:N", scale=alt.Scale(
+                    domain=["Entrenamiento", "Validación"], range=[AZUL, "#4D4D4D"]),
+                    legend=alt.Legend(orient="bottom", title=None)),
+                tooltip=["epoch", "Conjunto", alt.Tooltip("Pérdida:Q", format=".3f")]
+            ).properties(width="container", height=280))
+    else:
+        st.info("Falta el archivo modelo_info/results.csv para mostrar las métricas.")
+
+    st.markdown("#### Errores corregidos por profesionales")
+    rev = _revision_cacheada()
+    if rev is None or rev["analisis"] == 0:
+        st.info("Todavía no hay análisis revisados. Cuando alguien corrija etiquetas en la pestaña "
+                "*Subir y detectar* y guarde, acá va a aparecer una medida real de los errores del modelo.")
+    else:
+        corr = rev["correcciones"]
+        cambios = corr[corr["tipo"] == "cambio"]
+        descartes = int((corr["tipo"] == "descarte").sum())
+        total_modelo = rev["detecciones"] + descartes
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Análisis revisados", rev["analisis"])
+        k2.metric("Detecciones del modelo", total_modelo)
+        k3.metric("Corregidas o descartadas",
+                  f"{(len(cambios) + descartes) / max(total_modelo, 1):.1%}")
+        if len(cambios):
+            top = (cambios.groupby(["clase_modelo", "clase_final"]).size()
+                   .reset_index(name="veces").sort_values("veces", ascending=False).head(10))
+            top["Confusión"] = top["clase_modelo"] + " → " + top["clase_final"]
+            st.markdown("**Confusiones más frecuentes** (lo que dijo el modelo → lo que corrigió la persona)")
+            st.altair_chart(alt.Chart(top).mark_bar(color=AZUL).encode(
+                y=alt.Y("Confusión:N", sort="-x", title=None),
+                x=alt.X("veces:Q", title="Veces", axis=eje_entero(0, int(top["veces"].max()), "Veces")),
+                tooltip=["Confusión", "veces"]).properties(width="container",
+                                                           height=max(120, 28 * len(top) + 40)))
+        st.caption("Se calcula solo con los análisis marcados como revisados por un profesional.")
+
+    st.markdown("#### Limitaciones")
+    st.markdown("""
+- Puede **confundir pares de tamaño y forma parecidos**, sobre todo dentro de un mismo grupo
+  (el detalle de las confusiones está en la evaluación de modelos del equipo).
+- Puede contar mal los **cromosomas superpuestos o cruzados**.
+- Solo evalúa **alteraciones numéricas**, no estructurales.
+- Es una herramienta de **apoyo**: toda alerta debe ser validada por un profesional.
+""")
+
+
 # ---------- Filtros (barra lateral) ----------
 df_f = df
 with st.sidebar:
@@ -311,88 +746,41 @@ with st.sidebar:
 
 m = matriz_conteos(df_f) if not df_f.empty else None
 
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["Subir y detectar", "Dashboard", "Historial de sesión", "Gráficos"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    ["Subir y detectar", "Dashboard", "Historial de sesión", "Gráficos", "Laboratorio",
+     "Sobre el modelo"])
 
 # ---------- TAB 1: subir y detectar ----------
-def mostrar_resultado(imagen, u):
-    """Muestra el resultado guardado en session_state (sobrevive a los reruns)."""
-    detecciones = u["detecciones"]
-    st.write(f"Se detectaron {len(detecciones)} cromosomas")
-
-    imagen_dibujada = imagen.copy()
-    for d in detecciones:
-        x1, y1, x2, y2 = d["caja"]
-        cv2.rectangle(imagen_dibujada, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(imagen_dibujada, d["clase"], (x1, max(20, y1 - 5)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-    st.image(imagen_dibujada, channels="BGR", caption="Detecciones")
-
-    st.subheader("Listado de detecciones")
-    st.dataframe([
-        {"Clase": d["clase"], "Confianza": f"{d['confianza']:.2f}",
-         "x1": d["caja"][0], "y1": d["caja"][1],
-         "x2": d["caja"][2], "y2": d["caja"][3]}
-        for d in detecciones
-    ])
-
-    conteo = Counter(nombre_par(d["clase"]) for d in detecciones)
-    st.subheader("Conteo por par")
-    st.dataframe([{"Par": c, "Cantidad detectada": n} for c, n in sorted(conteo.items())])
-
-    # Un par con 0 detecciones también cuenta como alerta
-    alertas = [f"{p} ({conteo.get(p, 0)})" for p in PARES_AUTOSOMICOS
-               if conteo.get(p, 0) != 2]
-    if alertas:
-        st.warning("⚠️ Pares con cantidad inesperada: " + ", ".join(alertas))
-    else:
-        st.success("✅ Todos los pares autosómicos tienen 2 copias")
-
-    st.subheader("Guardar")
-    if u.get("guardado_id"):
-        st.success(f"Guardado en la base de datos (análisis {u['guardado_id']}). "
-                   "Ya aparece en las pestañas Dashboard y Gráficos.")
-    elif st.button("Guardar en la base de datos"):
-        try:
-            alto, ancho = imagen.shape[:2]
-            ruta = None
-            if u.get("bytes"):
-                CARPETA_IMAGENES.mkdir(parents=True, exist_ok=True)
-                ruta = CARPETA_IMAGENES / f"{datetime.now():%Y%m%d_%H%M%S}_{u['archivo']}"
-                ruta.write_bytes(u["bytes"])
-            u["guardado_id"] = guardar_analisis(u["archivo"], detecciones, ancho, alto,
-                                                str(ruta) if ruta else None)
-            st.cache_data.clear()
-            st.rerun()
-        except Exception as e:
-            st.error(f"No se pudo guardar en MySQL: {e}")
-    return alertas
-
-
 with tab1:
     archivo = st.file_uploader("Subí una imagen de cariotipo", type=["jpg", "jpeg", "png"])
     if archivo is not None:
         bytes_imagen = np.frombuffer(archivo.read(), np.uint8)
         imagen = cv2.imdecode(bytes_imagen, cv2.IMREAD_COLOR)
-        st.image(imagen, channels="BGR", caption="Imagen cargada")
 
         if st.button("Detectar cromosomas"):
-            detecciones = modelo.detectar(imagen, conf=CONF_UMBRAL, iou=IOU_UMBRAL)
-            u = {"archivo": archivo.name, "detecciones": detecciones,
-                 "guardado_id": None, "bytes": bytes_imagen.tobytes()}
-            st.session_state.ultimo_resultado = u
-            conteo = Counter(nombre_par(d["clase"]) for d in detecciones)
-            alertas = [f"{p} ({conteo.get(p, 0)})" for p in PARES_AUTOSOMICOS
-                       if conteo.get(p, 0) != 2]
+            dets = detecciones_normalizadas(
+                modelo.detectar(imagen, conf=CONF_UMBRAL, iou=IOU_UMBRAL))
+            st.session_state.n_runs += 1
+            st.session_state.ultimo_resultado = {
+                "run": st.session_state.n_runs, "archivo": archivo.name,
+                "detecciones": dets, "guardado_id": None, "bytes": bytes_imagen.tobytes()}
+            conteo0 = Counter(d["clase_modelo"] for d in dets)
+            motivos0 = motivos_revision(
+                len(dets), conteo0, sum(1 for d in dets if d["confianza"] < CONF_REVISION))
             st.session_state.historial_pruebas.append({
                 "Imagen": archivo.name,
-                "Total detectado": len(detecciones),
-                "Pares con cantidad inesperada": ", ".join(alertas) if alertas else "Ninguno",
+                "Total detectado": len(dets),
+                "Pares con cantidad inesperada": ", ".join(
+                    f"{p} ({conteo0.get(p, 0)})" for p in PARES_AUTOSOMICOS
+                    if conteo0.get(p, 0) != 2) or "Ninguno",
+                "Revisión": "Revisar" if motivos0 else "OK",
             })
 
         u = st.session_state.get("ultimo_resultado")
         if u and u["archivo"] == archivo.name:
             mostrar_resultado(imagen, u)
+        else:
+            st.image(imagen, channels="BGR", caption="Imagen cargada")
 
 # ---------- TAB 2: dashboard ----------
 with tab2:
@@ -400,18 +788,24 @@ with tab2:
     if df_f.empty:
         st.info("No hay datos para los filtros elegidos.")
     else:
-        alerta_img = (m[PARES_AUTOSOMICOS] != 2).any(axis=1)
+        baja = df_f.groupby(["imagen_id", "archivo"])["confianza"].apply(
+            lambda s: int((s < CONF_REVISION).sum()))
+        motivos_img = {idx: motivos_revision(int(m.loc[idx].sum()), m.loc[idx].to_dict(),
+                                             int(baja.get(idx, 0))) for idx in m.index}
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Imágenes analizadas", df_f["imagen_id"].nunique())
         k2.metric("Cromosomas detectados", len(df_f))
         k3.metric("Confianza promedio", f"{df_f['confianza'].mean():.1%}")
-        k4.metric("Imágenes con alertas", int(alerta_img.sum()))
+        k4.metric("Imágenes a revisar", sum(1 for v in motivos_img.values() if v))
 
         st.subheader("Resumen por imagen")
+        st.caption("**Revisión** indica si conviene que un profesional mire la imagen: total distinto "
+                   "de 46, pares con cantidad distinta de 2, X/Y inusual o detecciones de baja confianza.")
         resumen = pd.DataFrame({
             "Total detectado": m.sum(axis=1),
             "Pares con cantidad inesperada": m[PARES_AUTOSOMICOS].apply(
                 lambda fila: ", ".join(fila[fila != 2].index) or "Ninguno", axis=1),
+            "Revisión": ["Revisar" if motivos_img[idx] else "OK" for idx in m.index],
         }).reset_index()
         st.dataframe(resumen)
 
@@ -427,6 +821,18 @@ with tab2:
             return ""
 
         st.dataframe(m.reset_index().style.map(resaltar, subset=PARES_AUTOSOMICOS))
+
+        with st.expander("Informe de una imagen"):
+            sel = st.selectbox("Imagen", list(m.index), key="informe_img",
+                               format_func=lambda t: f"{t[1]} (id {t[0]})")
+            sub = df_f[df_f["imagen_id"] == sel[0]]
+            filas_i = list(zip(sub["numero_par"], sub["confianza"]))
+            html_i = informe_html(
+                sel[1], Counter(sub["numero_par"]), motivos_img[sel], filas_i,
+                None, {"Fuente": "Base de datos"},
+                ["Informe generado desde los datos guardados (sin imagen)."])
+            st.download_button("Descargar informe (HTML)", html_i.encode("utf-8"),
+                               f"informe_{Path(sel[1]).stem}.html", "text/html")
 
         with st.expander("Detalle de detecciones"):
             detalle = df_f[["archivo", "fecha", "numero_par", "confianza",
@@ -532,3 +938,11 @@ with tab4:
             explicar("cuántas imágenes se analizaron según la fecha de la muestra.",
                      "cada punto es un día con al menos una imagen.")
             st.altair_chart(imagenes_por_dia(df_f))
+
+# ---------- TAB 5: laboratorio ----------
+with tab5:
+    panel_laboratorio()
+
+# ---------- TAB 6: sobre el modelo ----------
+with tab6:
+    pestana_modelo()
