@@ -1,6 +1,6 @@
 # 🧬 Cariodetector
 
-Aplicación de escritorio desarrollada en **Python** para el análisis de imágenes microscópicas de cromosomas humanos mediante técnicas de **visión artificial e inteligencia artificial**.
+Aplicación de escritorio y nube desarrollada en **Python** para el análisis de imágenes microscópicas de cromosomas humanos mediante técnicas de **visión artificial e inteligencia artificial**.
 
 El sistema utiliza un modelo **YOLO preentrenado** para detectar y clasificar los **24 tipos de cromosomas humanos**: cromosomas 1–22, X e Y.
 
@@ -17,6 +17,7 @@ El sistema utiliza un modelo **YOLO preentrenado** para detectar y clasificar lo
 - [Configuración del modelo](#-configuración-del-modelo)
 - [Ejecución](#-ejecución)
 - [Flujo de uso](#-flujo-de-uso)
+- [Dashboard Web(Streamlit)](#dashboard-web)
 - [Estructura del proyecto](#-estructura-del-proyecto)
 - [Clases de cromosomas](#-clases-de-cromosomas)
 - [Errores comunes](#-errores-comunes)
