@@ -66,6 +66,8 @@ El sistema permite:
 | **MySQL** | Almacenamiento de resultados |
 | **OpenCV** | Procesamiento de imágenes |
 | **Pillow** | Manejo y visualización de imágenes |
+| **Streamlit** | Dashboard web |
+| ***Altair / Pandas*** | Gráficos y tablas del dashboard |
 
 Las dependencias completas del proyecto se encuentran en [`requirements.txt`](requirements.txt).
 
@@ -258,6 +260,12 @@ El funcionamiento básico de la aplicación es el siguiente:
 6. Consultar la tabla y el resumen de resultados.
 7. Guardar el análisis en MySQL.
 8. Consultar los análisis anteriores desde el historial.
+
+---
+## 📊 Dashboard web (Streamlit)
+
+Además de la interfaz de escritorio, el proyecto incluye un dashboard web que usa el mismo modelo YOLO y la misma base de datos MySQL. Permite subir una imagen, detectar los cromosomas, corregir lo que el modelo etiquetó mal y ver estadísticas de todos los análisis guardados.
+
 
 ---
 
