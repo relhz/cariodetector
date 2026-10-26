@@ -17,7 +17,7 @@ El sistema utiliza un modelo **YOLO preentrenado** para detectar y clasificar lo
 - [Configuración del modelo](#-configuración-del-modelo)
 - [Ejecución](#-ejecución)
 - [Flujo de uso](#-flujo-de-uso)
-- [Dashboard Web(Streamlit)](#dashboard-web)
+- [Dashboard web(Streamlit)](#dashboard-web)
 - [Estructura del proyecto](#-estructura-del-proyecto)
 - [Clases de cromosomas](#-clases-de-cromosomas)
 - [Errores comunes](#-errores-comunes)
@@ -67,7 +67,7 @@ El sistema permite:
 | **OpenCV** | Procesamiento de imágenes |
 | **Pillow** | Manejo y visualización de imágenes |
 | **Streamlit** | Dashboard web |
-| ***Altair / Pandas*** | Gráficos y tablas del dashboard |
+| **Altair / Pandas** | Gráficos y tablas del dashboard |
 
 Las dependencias completas del proyecto se encuentran en [`requirements.txt`](requirements.txt).
 
@@ -262,7 +262,7 @@ El funcionamiento básico de la aplicación es el siguiente:
 8. Consultar los análisis anteriores desde el historial.
 
 ---
-## 📊 Dashboard web (Streamlit)
+## 📊 Dashboard web
 
 Además de la interfaz de escritorio, el proyecto incluye un dashboard web que usa el mismo modelo YOLO y la misma base de datos MySQL. Permite subir una imagen, detectar los cromosomas, corregir lo que el modelo etiquetó mal y ver estadísticas de todos los análisis guardados.
 
