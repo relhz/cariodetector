@@ -266,6 +266,15 @@ El funcionamiento básico de la aplicación es el siguiente:
 
 Además de la interfaz de escritorio, el proyecto incluye un dashboard web que usa el mismo modelo YOLO y la misma base de datos MySQL. Permite subir una imagen, detectar los cromosomas, corregir lo que el modelo etiquetó mal y ver estadísticas de todos los análisis guardados.
 
+### *Contenidos* 
+| Pestaña| Para qué sirve |
+|---|---|
+| **Subir y detectar** | Sube una imagen y muestra un semáforo (OK / Revisar) con los motivos. El profesional puede corregir la etiqueta de cada detección o descartarla, guardar el análisis y descargar un informe (HTML) y las detecciones (CSV). |
+| **Dashboard** | Indicadores y tablas de todos los análisis guardados, con su estado de revisión. |
+| **Historial de sesión** | Pruebas hechas desde que se abrió la página. |
+| **Gráficos** | Cariograma, mapa de calor por imagen y par, confianza del modelo y más, con glosario. |
+| **Laboratorio** | 	Prueba una imagen con distintos valores de conf e iou y compara cuántos cromosomas detecta. |
+| **Sobre el modelo** | Datos del entrenamiento, métricas, curvas y limitaciones. |
 
 ---
 
