@@ -55,6 +55,22 @@ class AnalizadorImagen:
             "total": len(self.detecciones)
         }
 
+    def redibujar_anotada(self, detecciones=None):
+        """
+        Vuelve a dibujar la imagen anotada con las detecciones indicadas.
+
+        Se usa después de corregir la clase de una detección para que las
+        etiquetas de la imagen coincidan con la revisión del profesional.
+        """
+        if self.imagen_original is None:
+            raise ValueError("No hay imagen cargada. Use cargar_imagen() primero.")
+
+        if detecciones is not None:
+            self.detecciones = detecciones
+
+        self.imagen_anotada = self._dibujar_detecciones(self.imagen_original, self.detecciones)
+        return self.imagen_anotada
+
     def _dibujar_detecciones(self, imagen, detecciones):
         
         imagen_anotada = imagen.copy()

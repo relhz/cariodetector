@@ -20,9 +20,7 @@ El sistema utiliza un modelo **YOLO preentrenado** para detectar y clasificar lo
 - [Dashboard web(Streamlit)](#-dashboard-web)
 - [Estructura del proyecto](#-estructura-del-proyecto)
 - [Clases de cromosomas](#-clases-de-cromosomas)
-- [Errores comunes](#-errores-comunes)
-- [Notas](#-notas)
-- [Autor](#-autor)
+- [Autores](#-autores)
 
 ---
 
@@ -38,7 +36,10 @@ El sistema permite:
 - Visualizar las detecciones mediante *bounding boxes* y etiquetas.
 - Consultar un resumen de los cromosomas detectados.
 - Guardar los resultados de los análisis en una base de datos MySQL.
+- Revisar y corregir la clasificación de cada cromosoma.
+- Registrar el cariotipo, las alteraciones y las observaciones del estudio.
 - Consultar el historial de análisis realizados.
+- Visualizar estadísticas y gráficos en una pestaña aparte.
 
 ---
 
@@ -49,10 +50,8 @@ El sistema permite:
 - 🧬 Clasificación de 24 tipos de cromosomas.
 - 📦 Visualización de *bounding boxes*.
 - 📊 Tabla de resultados y resumen de detecciones.
-- 💾 Persistencia de resultados mediante MySQL.
+- 🔍 Recorte ampliado de cada cromosoma para revisar su clasificación.
 - 📚 Historial de análisis anteriores.
-- 🖥️ Interfaz gráfica desarrollada con Tkinter.
-- 🐍 Implementación completamente realizada en Python.
 
 ---
 
@@ -68,6 +67,7 @@ El sistema permite:
 | **Pillow** | Manejo y visualización de imágenes |
 | **Streamlit** | Dashboard web |
 | **Altair / Pandas** | Gráficos y tablas del dashboard |
+| **Matplotlib** | Gráficos de la pestaña de estadísticas |
 
 Las dependencias completas del proyecto se encuentran en [`requirements.txt`](requirements.txt).
 
@@ -78,7 +78,7 @@ Las dependencias completas del proyecto se encuentran en [`requirements.txt`](re
 Antes de instalar el proyecto, es necesario contar con:
 
 - **Python 3.8 o superior**
-- **MySQL Server**
+- **MySQL Server 8.0 o superior** (el script usa `utf8mb4_0900_ai_ci` y `JSON_TABLE`)
 - **Git** (opcional, pero recomendado)
 - Las dependencias especificadas en `requirements.txt`
 - El modelo `best_24_chromosomes.pt`
@@ -126,16 +126,31 @@ El proyecto utiliza **MySQL** para almacenar los resultados de los análisis.
 
 ### 1. Crear la base de datos
 
-Ejecutá el script SQL ubicado en:
+El script ubicado en:
 
 ```text
 scripts_sql/crear_bd.sql
 ```
 
-Por ejemplo, desde MySQL:
+crea la base de datos `cariotipos` con las tablas `estudios`, `cromosomas`,
+`clasificaciones` y `resultados`, además de las funciones de estadísticas, los
+procedimientos de alta y las vistas de consulta.
 
-```sql
-SOURCE scripts_sql/crear_bd.sql;
+El script es idempotente: se puede volver a ejecutar para actualizar las
+funciones, procedimientos y vistas. También completa las clasificaciones
+provisionales de los estudios que se hayan guardado antes de que existiera
+esa funcionalidad.
+
+Podés ejecutarlo desde el cliente MySQL:
+
+```bash
+mysql -u root -p < scripts_sql/crear_bd.sql
+```
+
+o usar el inicializador del proyecto:
+
+```bash
+python utils/db_config.py
 ```
 
 ### 2. Configurar las credenciales
@@ -151,10 +166,16 @@ y configurá los datos correspondientes a tu instalación de MySQL.
 Ejemplo:
 
 ```python
-DB_HOST = "localhost"
-DB_USER = "root"
-DB_PASSWORD = "tu_contraseña"
-DB_NAME = "nombre_base_datos"
+DB_CONFIG = {
+    "host": "localhost",
+    "port": 3306,
+    "user": "root",
+    "password": "tu_contraseña",
+    "database": "cariotipos",
+    "charset": "utf8mb4",
+    "collation": "utf8mb4_0900_ai_ci",
+    "autocommit": True,
+}
 ```
 
 ---
@@ -194,12 +215,6 @@ Una vez configurado el entorno, la base de datos y el modelo, ejecutá:
 
 ```bash
 python main.py
-```
-
-En Linux/macOS, si tu sistema utiliza `python3`:
-
-```bash
-python3 main.py
 ```
 
 ---
@@ -247,6 +262,17 @@ El funcionamiento básico de la aplicación es el siguiente:
 ┌─────────────────────┐
 │      Historial      │
 │ análisis anteriores │
+└──────────┬──────────┘
+           ↓
+┌─────────────────────┐
+│  Revisar estudio    │
+│ clasificación +     │
+│ cariotipo           │
+└──────────┬──────────┘
+           ↓
+┌─────────────────────┐
+│   Estadísticas y    │
+│      gráficos       │
 └─────────────────────┘
 ```
 
@@ -256,10 +282,41 @@ El funcionamiento básico de la aplicación es el siguiente:
 2. Seleccionar una imagen microscópica.
 3. Visualizar la imagen original.
 4. Ejecutar el análisis.
-5. Revisar las detecciones realizadas por el modelo.
+5. Revisar las detecciones: seleccionar una fila, ver el recorte del cromosoma y corregir su clase si hace falta.
 6. Consultar la tabla y el resumen de resultados.
 7. Guardar el análisis en MySQL.
 8. Consultar los análisis anteriores desde el historial.
+9. Abrir la revisión de un estudio, corregir la asignación de cromosomas y guardar el cariotipo.
+10. Consultar la pestaña **Estadísticas** para ver los resúmenes y gráficos.
+
+### Revisión en la pestaña Detecciones
+
+Después de analizar la imagen, la pestaña **Detecciones** permite revisar cada
+cromosoma antes de guardar:
+
+- Al seleccionar una fila se muestra un **recorte ampliado de la imagen original**
+  centrado en esa detección.
+- El panel indica la clase detectada por el modelo y su confianza.
+- Con el selector **Asignar** se puede elegir el tipo correcto (`A1`…`G22`, `X`, `Y`).
+- **Aplicar** reemplaza la clase de esa detección; **Restaurar** vuelve a la clase
+  original del modelo.
+- Las filas corregidas se marcan con `*` y un fondo resaltado.
+- El resumen y las etiquetas de la imagen analizada se actualizan automáticamente.
+
+La clase corregida es la que se guarda en la base: queda tanto en
+`cromosomas.clase_detectada` como en `clasificaciones.cromosoma_asignado`.
+
+### Revisión de un estudio
+
+Al guardar un análisis, la aplicación crea una **clasificación provisional** por
+cada cromosoma usando la clase que detectó el modelo. Desde el historial, el
+botón **Revisar estudio** (o un doble clic sobre una fila) abre una ventana
+donde se puede:
+
+- Seleccionar uno o varios cromosomas y cambiar su asignación (`A1`…`G22`, `X`, `Y`).
+- Generar automáticamente un cariotipo sugerido a partir de las asignaciones.
+- Completar el cariotipo, la alteración y las observaciones.
+- Guardar la revisión, que deja el estudio en estado `FINALIZADO`.
 
 ---
 ## 📊 Dashboard web
@@ -289,12 +346,14 @@ analizador-cromosomas/
 ├── .gitignore
 │
 ├── interfaz/
-│   └── interfaz.py
+│   ├── interfaz.py
+│   └── pestana_estadisticas.py
 │
 ├── funciones/
 │   ├── analisis_imagen.py
 │   ├── modelo_cromosomas.py
-│   └── resultados.py
+│   ├── resultados.py
+│   └── estadisticas_bd.py
 │
 ├── dashboard/
 │   ├── app.py
@@ -325,11 +384,15 @@ analizador-cromosomas/
 | `main.py` | Punto de entrada de la aplicación |
 | `requirements.txt` | Dependencias de Python |
 | `interfaz/` | Componentes de la interfaz gráfica |
+| `interfaz.py` | Ventana principal, guardado e historial |
+| `pestana_estadisticas.py` | Pestaña de tablas y gráficos |
 | `funciones/` | Lógica principal del análisis |
 | `analisis_imagen.py` | Procesamiento y análisis de imágenes |
 | `modelo_cromosomas.py` | Gestión del modelo de detección |
 | `resultados.py` | Procesamiento y presentación de resultados |
 | `dashboard/` | Dashboard web en Streamlit (detección, revisión, estadísticas) |
+| `resultados.py` | Procesamiento, clasificación y presentación de resultados |
+| `estadisticas_bd.py` | Consultas a las vistas de estadísticas |
 | `utils/` | Configuraciones y utilidades |
 | `db_config.py` | Configuración de conexión a MySQL |
 | `models/` | Archivos relacionados con el modelo YOLO |
@@ -340,108 +403,22 @@ analizador-cromosomas/
 
 ## 🧬 Clases de cromosomas
 
-El modelo contempla **24 clases**:
+El modelo contempla **24 clases**. Las etiquetas que devuelve el modelo usan
+los grupos Denver con el número de cromosoma:
 
-| Clase | Tipo |
-|---:|---|
-| 1 | Cromosoma 1 |
-| 2 | Cromosoma 2 |
-| 3 | Cromosoma 3 |
-| ... | ... |
-| 22 | Cromosoma 22 |
+| Clase | Cromosoma |
+|---|---|
+| A1, A2, A3 | Cromosomas 1–3 |
+| B4, B5 | Cromosomas 4–5 |
+| C6 … C12 | Cromosomas 6–12 |
+| D13, D14, D15 | Cromosomas 13–15 |
+| E16, E17, E18 | Cromosomas 16–18 |
+| F19, F20 | Cromosomas 19–20 |
+| G21, G22 | Cromosomas 21–22 |
 | X | Cromosoma X |
 | Y | Cromosoma Y |
 
 En términos generales, las clases corresponden a los cromosomas humanos **1–22, X e Y**.
-
----
-
-## ⚠️ Errores comunes
-
-### `Modelo no encontrado`
-
-Verificá que el archivo:
-
-```text
-best_24_chromosomes.pt
-```
-
-se encuentre dentro de:
-
-```text
-models/
-```
-
----
-
-### `MySQL no disponible`
-
-Comprobá:
-
-- Que MySQL Server esté ejecutándose.
-- Que la base de datos haya sido creada.
-- Que el usuario y contraseña sean correctos.
-- Que la configuración de `utils/db_config.py` sea correcta.
-
----
-
-### `Imagen inválida`
-
-La aplicación admite imágenes en formatos:
-
-```text
-JPG
-JPEG
-PNG
-```
-
-Verificá que el archivo seleccionado sea una imagen válida y que pueda abrirse correctamente.
-
----
-
-## 🔐 Seguridad
-
-Este proyecto está pensado principalmente para fines académicos.
-
-No se recomienda almacenar credenciales directamente en el código fuente cuando el proyecto vaya a ser publicado.
-
-Antes de subir el proyecto a GitHub, asegurate de incluir archivos sensibles en `.gitignore`, por ejemplo:
-
-```gitignore
-venv/
-__pycache__/
-*.pyc
-.env
-*.log
-```
-
-También se recomienda revisar el repositorio antes del primer `push` para evitar publicar contraseñas, claves API u otras credenciales.
-
----
-
-## 📝 Notas
-
-- El proyecto utiliza rutas relativas mediante `pathlib`.
-- No requiere Docker.
-- No utiliza una API web.
-- No incluye sistema de autenticación.
-- Está preparado para ejecutarse en Windows y Linux.
-- El modelo YOLO debe estar disponible localmente para realizar las detecciones.
-- La precisión de las detecciones depende del modelo entrenado y de la calidad de las imágenes utilizadas.
-
----
-
-## 🎓 Proyecto académico
-
-Este proyecto fue desarrollado como **Trabajo Final** y tiene como objetivo integrar conceptos de:
-
-- Programación orientada a objetos.
-- Procesamiento de imágenes.
-- Visión artificial.
-- Inteligencia artificial.
-- Detección de objetos.
-- Interfaces gráficas.
-- Bases de datos relacionales.
 
 ---
 
