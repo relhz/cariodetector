@@ -5,7 +5,6 @@ import pandas as pd
 import altair as alt
 import base64
 import html
-from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from modelo import DetectorCromosomas
@@ -304,6 +303,12 @@ def explicar(que, como):
 
 
 # ---------- Revisión: reglas simples para decidir si una imagen necesita ojo humano ----------
+def contar(clases):
+    """Cuenta cuántas veces aparece cada clase en una lista, usando list.count().
+    Devuelve un diccionario {clase: cantidad}; con .get(par, 0) se consulta un par."""
+    return {c: clases.count(c) for c in set(clases)}
+
+
 def motivos_revision(total, conteo, n_baja):
     """Lista de motivos por los que conviene revisar una imagen (vacía = sin motivos)."""
     motivos = []
@@ -409,15 +414,33 @@ def png_base64(imagen, ancho_max=1200):
     return base64.b64encode(buf.tobytes()).decode("ascii") if ok else None
 
 
+def sugerir_cariotipo(conteo):
+    """Cariotipo aproximado a partir del conteo por par, con el mismo formato que la sugerencia
+    de la interfaz Tkinter (funciones/resultados.py): total, sexo y ganancias o pérdidas.
+    Ejemplos: '46,XX' · '47,XY,+21' · '45,XX,-18'. Devuelve (cariotipo, alteraciones)."""
+    total = sum(n for par, n in conteo.items() if par in PARES_ORDEN)
+    x, y = conteo.get("X", 0), conteo.get("Y", 0)
+    sexo = "?" if x == 0 and y == 0 else "X" * x + "Y" * y
+    alteraciones = []
+    for numero, par in enumerate(PARES_AUTOSOMICOS, start=1):
+        diferencia = conteo.get(par, 0) - 2
+        signo = "+" if diferencia > 0 else "-"
+        alteraciones += [f"{signo}{numero}"] * abs(diferencia)
+    cariotipo = f"{total},{sexo}" + ("," + ",".join(alteraciones) if alteraciones else "")
+    return cariotipo, alteraciones
+
+
 def resultado_revision(total, conteo, motivos, observ):
     """Datos para la tabla `resultados` cuando un profesional confirma la revisión.
-    El cariotipo se arma con el total y la combinación de cromosomas sexuales
-    (por ejemplo '46,XX'); si X/Y no es XX ni XY queda con signos de pregunta."""
+    El cariotipo se sugiere igual que en el Tkinter; la alteración lista las ganancias y
+    pérdidas numéricas (y avisa si los cromosomas sexuales no son XX ni XY)."""
+    cariotipo, alteraciones = sugerir_cariotipo(conteo)
     x, y = conteo.get("X", 0), conteo.get("Y", 0)
-    sexo = {(2, 0): "XX", (1, 1): "XY"}.get((x, y), "??")
-    alteracion = "; ".join(motivos) if motivos else "Sin alteraciones numéricas detectadas"
-    return {"cariotipo": f"{total},{sexo}"[:30], "alteracion": alteracion[:100],
-            "observacion": observ}
+    partes = list(alteraciones)
+    if (x, y) not in ((2, 0), (1, 1)):
+        partes.append(f"sexuales X={x}, Y={y}")
+    alteracion = ", ".join(partes) if partes else "Sin alteraciones numéricas detectadas"
+    return {"cariotipo": cariotipo[:30], "alteracion": alteracion[:100], "observacion": observ}
 
 
 def mostrar_resultado(imagen, u):
@@ -458,7 +481,7 @@ def mostrar_resultado(imagen, u):
         else:
             dets.append({**d, "clase_final": fila["Clase final"]})
     cambios = [d for d in dets if d["clase_final"] != d["clase_modelo"]]
-    conteo = Counter(d["clase_final"] for d in dets)
+    conteo = contar([d["clase_final"] for d in dets])
     n_baja = sum(1 for d in dets if d["confianza"] < CONF_REVISION)
     motivos = motivos_revision(len(dets), conteo, n_baja)
     dibujada = dibujar(imagen, dets)
@@ -538,7 +561,7 @@ def mostrar_resultado(imagen, u):
 
 # ---------- Laboratorio de parámetros ----------
 def _resumen_deteccion(dets):
-    conteo = Counter(d["clase_modelo"] for d in dets)
+    conteo = contar([d["clase_modelo"] for d in dets])
     n_baja = sum(1 for d in dets if d["confianza"] < CONF_REVISION)
     pares = sum(1 for p in PARES_AUTOSOMICOS if conteo.get(p, 0) != 2)
     return conteo, n_baja, pares
@@ -764,7 +787,7 @@ with tab1:
             st.session_state.ultimo_resultado = {
                 "run": st.session_state.n_runs, "archivo": archivo.name,
                 "detecciones": dets, "guardado_id": None, "bytes": bytes_imagen.tobytes()}
-            conteo0 = Counter(d["clase_modelo"] for d in dets)
+            conteo0 = contar([d["clase_modelo"] for d in dets])
             motivos0 = motivos_revision(
                 len(dets), conteo0, sum(1 for d in dets if d["confianza"] < CONF_REVISION))
             st.session_state.historial_pruebas.append({
@@ -828,7 +851,7 @@ with tab2:
             sub = df_f[df_f["imagen_id"] == sel[0]]
             filas_i = list(zip(sub["numero_par"], sub["confianza"]))
             html_i = informe_html(
-                sel[1], Counter(sub["numero_par"]), motivos_img[sel], filas_i,
+                sel[1], contar(list(sub["numero_par"])), motivos_img[sel], filas_i,
                 None, {"Fuente": "Base de datos"},
                 ["Informe generado desde los datos guardados (sin imagen)."])
             st.download_button("Descargar informe (HTML)", html_i.encode("utf-8"),

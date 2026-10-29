@@ -1,3 +1,4 @@
+import json
 import os
 import numpy as np
 import pandas as pd
@@ -105,19 +106,22 @@ CREAR_CORRECCIONES = """
 
 def guardar_analisis(nombre_imagen, detecciones, ancho=None, alto=None, ruta_imagen=None,
                      observaciones=None, imagen_resultado=None, resultado=None):
-    """Guarda un análisis en la base `cariotipos` usando los procedimientos del script
-    (sp_crear_estudio, sp_carga_cromosomaDet, sp_guardar_clasificacion, sp_finalizar_estudio y,
-    si hay revisión, sp_guardar_resultado).
+    """Guarda un análisis en la base `cariotipos` con los procedimientos del script de Lucas:
+    - sp_guardar_analisis_completo: crea el estudio, carga todos los cromosomas (con la clase que
+      dijo el modelo en `clase_detectada`) y una clasificación provisional igual a esa clase.
+    - Si el profesional cambió alguna etiqueta, se actualiza `clasificaciones.cromosoma_asignado`.
+    - sp_guardar_revision_estudio: solo si un profesional confirmó la revisión; guarda el
+      resultado (cariotipo, alteración, observación) y deja el estudio como FINALIZADO.
 
-    Cada elemento de `detecciones` es un dict con caja (x1, y1, x2, y2 en píxeles),
-    clase_modelo, clase_final, confianza y descartada (bool).
-    - `cromosomas.clase_detectada` guarda lo que dijo el modelo y `clasificaciones` la clase final.
-    - Los cromosomas descartados NO se cargan en `cromosomas` (no son cromosomas), pero quedan
-      anotados en la tabla propia `correcciones`, igual que los cambios de etiqueta.
-    - `resultado` (opcional): dict con cariotipo, alteracion y observacion; solo se pasa cuando un
-      profesional confirmó la revisión.
-    `ancho` y `alto` ya no se usan (las cajas se guardan en píxeles); se aceptan por compatibilidad.
-    Devuelve el id del estudio."""
+    Cada elemento de `detecciones` es un dict con caja (x1, y1, x2, y2 en píxeles), clase_modelo,
+    clase_final, confianza y descartada (bool). Las cajas se guardan en píxeles, con x,y en la
+    esquina superior izquierda.
+    Los cromosomas descartados NO se cargan en `cromosomas` (no son cromosomas), pero quedan
+    anotados, igual que los cambios de etiqueta, en la tabla propia `correcciones`.
+    `ancho`, `alto` y `ruta_imagen` se aceptan por compatibilidad. Devuelve el id del estudio.
+
+    Ojo: sp_guardar_analisis_completo hace COMMIT por dentro. Si algo falla en los pasos
+    siguientes, el estudio ya quedó guardado con sus clases originales."""
     conexion = _conectar()
     try:
         cursor = conexion.cursor()
@@ -126,30 +130,45 @@ def guardar_analisis(nombre_imagen, detecciones, ancho=None, alto=None, ruta_ima
                                for d in detecciones)
         if hay_correcciones:
             cursor.execute(CREAR_CORRECCIONES)   # DDL antes de la transacción
-        # callproc devuelve la lista de argumentos; el parámetro OUT viene con su valor.
-        id_estudio = cursor.callproc("sp_crear_estudio",
-                                     (nombre_imagen, observaciones, 0))[2]
-        correcciones = []
+        filas = []
+        for d in conservadas:
+            x1, y1, x2, y2 = (int(round(v)) for v in d["caja"])
+            filas.append({"clase": d["clase_modelo"], "x": x1, "y": y1,
+                          "ancho": x2 - x1, "alto": y2 - y1,
+                          "confianza": round(float(d["confianza"]), 4)})
+        # callproc devuelve la lista de argumentos; el parámetro OUT (el 4.º) trae el id.
+        id_estudio = cursor.callproc(
+            "sp_guardar_analisis_completo",
+            (nombre_imagen, imagen_resultado, json.dumps(filas, ensure_ascii=False), 0))[3]
+
+        # El procedimiento inserta los cromosomas en el orden del JSON: sus ids salen en ese orden.
+        cursor.execute("SELECT id_cromosoma FROM cromosomas WHERE id_estudio = %s "
+                       "ORDER BY id_cromosoma", (id_estudio,))
+        ids = [fila[0] for fila in cursor.fetchall()]
+        if len(ids) != len(conservadas):
+            raise RuntimeError(f"Se esperaban {len(conservadas)} cromosomas y la base devolvió "
+                               f"{len(ids)}")
+
+        cambios, correcciones = [], []
+        for d, id_cromosoma in zip(conservadas, ids):
+            if d["clase_final"] != d["clase_modelo"]:
+                cambios.append((d["clase_final"], id_cromosoma))
+                correcciones.append((id_estudio, id_cromosoma, d["clase_modelo"],
+                                     d["clase_final"], round(float(d["confianza"]), 4), "cambio"))
         for d in detecciones:
-            confianza = round(float(d["confianza"]), 4)
             if d.get("descartada"):
                 correcciones.append((id_estudio, None, d["clase_modelo"], None,
-                                     confianza, "descarte"))
-                continue
-            x1, y1, x2, y2 = (int(round(v)) for v in d["caja"])
-            id_cromosoma = cursor.callproc(
-                "sp_carga_cromosomaDet",
-                (id_estudio, d["clase_modelo"], x1, y1, x2 - x1, y2 - y1, confianza, 0))[7]
-            cursor.callproc("sp_guardar_clasificacion",
-                            (id_cromosoma, d["clase_final"], confianza))
-            if d["clase_final"] != d["clase_modelo"]:
-                correcciones.append((id_estudio, id_cromosoma, d["clase_modelo"],
-                                     d["clase_final"], confianza, "cambio"))
-        cursor.callproc("sp_finalizar_estudio",
-                        (id_estudio, len(conservadas), imagen_resultado))
+                                     round(float(d["confianza"]), 4), "descarte"))
+        if cambios:
+            cursor.executemany("UPDATE clasificaciones SET cromosoma_asignado = %s "
+                               "WHERE id_cromosoma = %s", cambios)
+        if observaciones:
+            # el procedimiento no recibe observaciones: se anotan acá (marca de "Revisado")
+            cursor.execute("UPDATE estudios SET observaciones = %s WHERE id_estudio = %s",
+                           (observaciones, id_estudio))
         if resultado:
-            cursor.callproc("sp_guardar_resultado",
-                            (id_estudio, resultado["cariotipo"], resultado["alteracion"],
+            cursor.callproc("sp_guardar_revision_estudio",
+                            (id_estudio, None, resultado["cariotipo"], resultado["alteracion"],
                              resultado.get("observacion")))
         if correcciones:
             cursor.executemany(
