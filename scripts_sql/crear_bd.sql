@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS `resultados` (
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- UDFs para indicadores estadísticos
+
 DROP FUNCTION IF EXISTS `fn_total_estudios`;
 DELIMITER $$
 CREATE FUNCTION `fn_total_estudios`() RETURNS int
@@ -137,7 +138,8 @@ BEGIN
 END $$
 DELIMITER ;
 
--- Procedimientos almacenados (máximo 4 para MVP)
+-- Procedimientos almacenados
+
 DROP PROCEDURE IF EXISTS `sp_guardar_analisis_completo`;
 DELIMITER $$
 CREATE PROCEDURE `sp_guardar_analisis_completo`(
@@ -369,40 +371,9 @@ SELECT
 FROM estudios e
 LEFT JOIN resultados r ON r.id_estudio = e.id_estudio;
 
-DROP VIEW IF EXISTS `vista_estadisticas_clase`;
-CREATE VIEW `vista_estadisticas_clase` AS
-SELECT
-    id_estudio,
-    clase_detectada,
-    COUNT(*) AS cantidad,
-    ROUND(AVG(confianza), 4) AS confianza_promedio,
-    MIN(confianza) AS confianza_minima,
-    MAX(confianza) AS confianza_maxima
-FROM cromosomas
-GROUP BY id_estudio, clase_detectada;
-
 DROP VIEW IF EXISTS `vista_estadisticas_globales`;
 CREATE VIEW `vista_estadisticas_globales` AS
 SELECT
     fn_total_estudios() AS total_estudios,
     fn_total_cromosomas() AS total_cromosomas,
     fn_promedio_cromosomas_por_estudio() AS promedio_cromosomas_por_estudio;
-
-DROP VIEW IF EXISTS `vista_estudios_por_estado`;
-CREATE VIEW `vista_estudios_por_estado` AS
-SELECT
-    fn_estado_estudio(id_estudio) AS estado,
-    COUNT(*) AS cantidad
-FROM estudios
-GROUP BY fn_estado_estudio(id_estudio);
-
-DROP VIEW IF EXISTS `vista_clases_globales`;
-CREATE VIEW `vista_clases_globales` AS
-SELECT
-    clase_detectada,
-    COUNT(*) AS cantidad,
-    ROUND(AVG(confianza), 4) AS confianza_promedio,
-    MIN(confianza) AS confianza_minima,
-    MAX(confianza) AS confianza_maxima
-FROM cromosomas
-GROUP BY clase_detectada;

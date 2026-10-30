@@ -5,7 +5,6 @@ from funciones.modelo_cromosomas import DetectorCromosomas
 
 
 class AnalizadorImagen:
-    
 
     def __init__(self, detector=None):
 
@@ -16,7 +15,7 @@ class AnalizadorImagen:
         self.ruta_imagen = None
 
     def cargar_imagen(self, ruta_imagen):
-        
+
         ruta = Path(ruta_imagen)
         if not ruta.exists():
             raise FileNotFoundError(f"Imagen no encontrada: {ruta}")
@@ -29,29 +28,17 @@ class AnalizadorImagen:
         self.ruta_imagen = ruta
         return self.imagen_original
 
-    def cargar_imagen_desde_array(self, array_imagen):
-
-        if array_imagen is None or not isinstance(array_imagen, np.ndarray):
-            raise ValueError("Array de imagen inválido")
-
-        self.imagen_original = array_imagen.copy()
-        self.ruta_imagen = None
-        return self.imagen_original
-
     def analizar(self, conf_threshold=0.25):
-        
+
         if self.imagen_original is None:
             raise ValueError("No hay imagen cargada. Use cargar_imagen() primero.")
 
         self.detecciones = self.detector.detectar(self.imagen_original, conf_threshold)
         self.imagen_anotada = self._dibujar_detecciones(self.imagen_original, self.detecciones)
 
-        resumen = self._generar_resumen(self.detecciones)
-
         return {
             "detecciones": self.detecciones,
             "imagen_anotada": self.imagen_anotada,
-            "resumen": resumen,
             "total": len(self.detecciones)
         }
 
@@ -72,7 +59,7 @@ class AnalizadorImagen:
         return self.imagen_anotada
 
     def _dibujar_detecciones(self, imagen, detecciones):
-        
+
         imagen_anotada = imagen.copy()
         alto, ancho = imagen.shape[:2]
 
@@ -115,7 +102,6 @@ class AnalizadorImagen:
         return imagen_anotada
 
     def _generar_colores_clases(self):
-        np.random.seed(42)  
         colores = []
         for i in range(24):
             # Generar color en HSV y convertir a BGR para mejor distribución
@@ -125,56 +111,5 @@ class AnalizadorImagen:
             colores.append(tuple(int(c) for c in color_bgr))
         return colores
 
-    def _generar_resumen(self, detecciones):
-        
-        resumen = {}
-        for det in detecciones:
-            nombre = det["nombre_clase"]
-            if nombre not in resumen:
-                resumen[nombre] = {"count": 0, "confianza_max": 0.0, "confianza_min": 1.0}
-            resumen[nombre]["count"] += 1
-            resumen[nombre]["confianza_max"] = max(resumen[nombre]["confianza_max"], det["confianza"])
-            resumen[nombre]["confianza_min"] = min(resumen[nombre]["confianza_min"], det["confianza"])
-        return resumen
-
     def obtener_imagen_original(self):
-        """Retorna la imagen original cargada."""
         return self.imagen_original
-
-    def obtener_imagen_anotada(self):
-        """Retorna la imagen con anotaciones (después de analizar)."""
-        return self.imagen_anotada
-
-    def obtener_detecciones(self):
-        """Retorna la lista de detecciones."""
-        return self.detecciones
-
-    def guardar_imagen_anotada(self, ruta_salida):
-        if self.imagen_anotada is None:
-            raise ValueError("No hay imagen anotada. Ejecute analizar() primero.")
-
-        ruta = Path(ruta_salida)
-        ruta.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(ruta), self.imagen_anotada)
-        return ruta
-
-
-if __name__ == "__main__":
-    # Prueba básica
-    import sys
-    if len(sys.argv) > 1:
-        ruta_test = sys.argv[1]
-        try:
-            analizador = AnalizadorImagen()
-            analizador.cargar_imagen(ruta_test)
-            resultado = analizador.analizar()
-            print(f"Detecciones: {resultado['total']}")
-            print(f"Resumen: {resultado['resumen']}")
-            # Guardar resultado
-            salida = Path(ruta_test).stem + "_resultado.jpg"
-            analizador.guardar_imagen_anotada(salida)
-            print(f"Guardado: {salida}")
-        except Exception as e:
-            print(f"Error: {e}")
-    else:
-        print("Uso: python analisis_imagen.py <ruta_imagen>")

@@ -3,21 +3,14 @@ from collections import Counter
 
 # Clases que produce el modelo, en orden cromosómico (grupos Denver).
 CLASES_CROMOSOMA = (
-    ["A1", "A2", "A3", "B4", "B5"]
-    + [f"C{n}" for n in range(6, 13)]
-    + ["D13", "D14", "D15", "E16", "E17", "E18", "F19", "F20", "G21", "G22", "X", "Y"]
+    ["A1", "A2", "A3", "B4", "B5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "D13", "D14", "D15", "E16", "E17", "E18", "F19", "F20", "G21", "G22", "X", "Y"]
 )
 
 _CLASES_POR_CODIGO = {clase.upper(): clase for clase in CLASES_CROMOSOMA}
 
 
 def normalizar_clase(nombre):
-    """
-    Devuelve el código canónico de una clase (`A1`…`G22`, `X`, `Y`).
-
-    El modelo puede entregar etiquetas como `cromosoma 1` o directamente el
-    código corto. Las etiquetas desconocidas se devuelven sin cambios.
-    """
+    
     if nombre is None:
         return ""
 
@@ -87,9 +80,6 @@ def clave_orden_clase(nombre):
 def sugerir_cariotipo(asignaciones):
     """
     Arma un cariotipo aproximado a partir de las clases asignadas.
-
-    Es una sugerencia editable: cuenta los autosomas (2 de cada uno) y los
-    cromosomas sexuales, y agrega las ganancias o pérdidas detectadas.
     """
     conteo = Counter()
 
@@ -181,12 +171,6 @@ def recortar_deteccion(imagen, bbox, margen=0.15):
     recorte = imagen[y1:y2, x1:x2]
     return recorte if recorte.size else None
 
-def generar_resumen_conteo(detecciones):
-
-    contador = Counter(d["nombre_clase"] for d in detecciones)
-    return dict(contador)
-
-
 def generar_resumen_detallado(detecciones):
 
     from collections import defaultdict
@@ -220,18 +204,7 @@ def formatear_resumen_texto(resumen):
     lineas = []
     total = 0
 
-    def orden_clave(nombre):
-        try:
-            num = int(nombre.split()[-1])
-            return (0, num)
-        except ValueError:
-            if nombre.endswith("X"):
-                return (1, 23)
-            if nombre.endswith("Y"):
-                return (1, 24)
-            return (2, nombre)
-
-    for nombre in sorted(resumen.keys(), key=orden_clave):
+    for nombre in sorted(resumen.keys(), key=clave_orden_clase):
         data = resumen[nombre]
         if isinstance(data, dict) and "count" in data:
             count = data["count"]
@@ -286,14 +259,6 @@ def detecciones_para_bd(detecciones, ancho_imagen, alto_imagen):
     return filas
 
 
-def ordenar_detecciones_por_posicion(detecciones):
-    return sorted(detecciones, key=lambda d: (d["bbox"][1], d["bbox"][0]))
-
-
-def filtrar_por_confianza(detecciones, umbral=0.5):
-    return [d for d in detecciones if d["confianza"] >= umbral]
-
-
 def obtener_estadisticas_globales(detecciones):
     if not detecciones:
         return {
@@ -314,29 +279,3 @@ def obtener_estadisticas_globales(detecciones):
         "conf_min": min(confianzas),
         "tipos_unicos": len(tipos)
     }
-
-
-# if __name__ == "__main__":
-#     # Test rápido con datos ficticios
-#     detecciones_test = [
-#         {"clase_id": 0, "nombre_clase": "cromosoma 1", "confianza": 0.95, "bbox": [0.1, 0.2, 0.05, 0.1]},
-#         {"clase_id": 1, "nombre_clase": "cromosoma 2", "confianza": 0.92, "bbox": [0.2, 0.2, 0.05, 0.1]},
-#         {"clase_id": 0, "nombre_clase": "cromosoma 1", "confianza": 0.88, "bbox": [0.3, 0.2, 0.05, 0.1]},
-#         {"clase_id": 22, "nombre_clase": "cromosoma X", "confianza": 0.99, "bbox": [0.5, 0.5, 0.05, 0.1]},
-#     ]
-
-#     print("=== Tabla ===")
-#     for fila in detecciones_a_tabla(detecciones_test):
-#         print(fila)
-
-#     print("\n=== Resumen conteo ===")
-#     print(generar_resumen_conteo(detecciones_test))
-
-#     print("\n=== Resumen detallado ===")
-#     print(generar_resumen_detallado(detecciones_test))
-
-#     print("\n=== Texto formateado ===")
-#     print(formatear_resumen_texto(generar_resumen_detallado(detecciones_test)))
-
-#     print("\n=== Stats globales ===")
-#     print(obtener_estadisticas_globales(detecciones_test))

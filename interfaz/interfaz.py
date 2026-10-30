@@ -29,7 +29,7 @@ class InterfazCromosomas:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("Analizador de Cromosomas - Trabajo Práctico")
+        self.root.title("Cariodetector")
         self.root.geometry("1250x820")
         self.root.minsize(1000, 650)
 
@@ -39,7 +39,6 @@ class InterfazCromosomas:
         self.detecciones_actuales = []
         self.imagen_original_tk = None
         self.imagen_analizada_tk = None
-        self.id_estudio_guardado = None
 
         # Estado del panel de revisión de detecciones
         self._indice_a_item = {}
@@ -49,7 +48,6 @@ class InterfazCromosomas:
         # Estado para zoom/pan sincronizados
         # Datos de imagen original
         self.img_orig_pil = None  # PIL Image original (RGB)
-        self.img_orig_cv = None  # OpenCV original (BGR)
         self.img_anal_cv = None  # OpenCV anotada (BGR)
 
         # Transformación para cada canvas: scale y offset
@@ -92,7 +90,7 @@ class InterfazCromosomas:
         frame_controles = ttk.Frame(main_frame)
         frame_controles.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Label(frame_controles, text="ANALIZADOR DE CROMOSOMAS",
+        ttk.Label(frame_controles, text="CARIODETECTOR",
                   font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT, padx=(0, 20))
 
         self.btn_seleccionar = ttk.Button(frame_controles, text="Seleccionar imagen",
@@ -322,7 +320,6 @@ class InterfazCromosomas:
             self._limpiar_resultados()
             self.btn_analizar.config(state=tk.NORMAL)
             self.btn_guardar.config(state=tk.DISABLED)
-            self.id_estudio_guardado = None
             # Configurar eventos de zoom/pan para ambos canvas
             self._configurar_zoom_pan()
             self.var_estado.set(f"Imagen cargada: {Path(ruta).name}")
@@ -388,7 +385,6 @@ class InterfazCromosomas:
         # Guardar referencias según canvas
         if canvas == self.canvas_original:
             self.img_orig_pil = imagen_pil
-            self.img_orig_cv = imagen_cv
         else:
             self.img_anal_cv = imagen_cv
 
@@ -765,10 +761,9 @@ class InterfazCromosomas:
                 "sp_guardar_analisis_completo",
                 (nombre_img, None, detecciones_json, 0)
             )
-            id_estudio = resultado[-1]
+            id_estudio = resultado[-1] # type: ignore
             conexion.commit()
 
-            self.id_estudio_guardado = id_estudio
             messagebox.showinfo(
                 "Guardado",
                 f"Análisis guardado correctamente (ID de estudio: {id_estudio})"
@@ -1411,14 +1406,3 @@ class InterfazCromosomas:
             canvas.bind("<ButtonRelease-1>", self._on_mouse_release)
             canvas.bind("<B1-Motion>", self._on_mouse_move)
             canvas.bind("<Configure>", self._on_configure)
-
-
-def main():
-    """Punto de entrada de la interfaz."""
-    root = tk.Tk()
-    app = InterfazCromosomas(root)
-    root.mainloop()
-
-
-if __name__ == "__main__":
-    main()

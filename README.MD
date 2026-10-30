@@ -39,7 +39,7 @@ El sistema permite:
 - Revisar y corregir la clasificación de cada cromosoma.
 - Registrar el cariotipo, las alteraciones y las observaciones del estudio.
 - Consultar el historial de análisis realizados.
-- Visualizar estadísticas y gráficos en una pestaña aparte.
+- Visualizar tablas y estadísticas en una pestaña aparte.
 
 ---
 
@@ -67,7 +67,6 @@ El sistema permite:
 | **Pillow** | Manejo y visualización de imágenes |
 | **Streamlit** | Dashboard web |
 | **Altair / Pandas** | Gráficos y tablas del dashboard |
-| **Matplotlib** | Gráficos de la pestaña de estadísticas |
 
 Las dependencias completas del proyecto se encuentran en [`requirements.txt`](requirements.txt).
 
@@ -142,15 +141,9 @@ provisionales de los estudios que se hayan guardado antes de que existiera
 esa funcionalidad.
 
 Podés ejecutarlo desde el cliente MySQL:
-
+v
 ```bash
 mysql -u root -p < scripts_sql/crear_bd.sql
-```
-
-o usar el inicializador del proyecto:
-
-```bash
-python utils/db_config.py
 ```
 
 ### 2. Configurar las credenciales
@@ -272,7 +265,7 @@ El funcionamiento básico de la aplicación es el siguiente:
            ↓
 ┌─────────────────────┐
 │   Estadísticas y    │
-│      gráficos       │
+│       tablas        │
 └─────────────────────┘
 ```
 
@@ -287,7 +280,7 @@ El funcionamiento básico de la aplicación es el siguiente:
 7. Guardar el análisis en MySQL.
 8. Consultar los análisis anteriores desde el historial.
 9. Abrir la revisión de un estudio, corregir la asignación de cromosomas y guardar el cariotipo.
-10. Consultar la pestaña **Estadísticas** para ver los resúmenes y gráficos.
+10. Consultar la pestaña **Estadísticas** para ver las tablas y resúmenes.
 
 ### Revisión en la pestaña Detecciones
 
@@ -328,9 +321,7 @@ Además de la interfaz de escritorio, el proyecto incluye un dashboard web que u
 |---|---|
 | **Subir y detectar** | Sube una imagen y muestra un semáforo (OK / Revisar) con los motivos. El profesional puede corregir la etiqueta de cada detección o descartarla, guardar el análisis y descargar un informe (HTML) y las detecciones (CSV). |
 | **Dashboard** | Indicadores y tablas de todos los análisis guardados, con su estado de revisión. |
-| **Historial de sesión** | Pruebas hechas desde que se abrió la página. |
 | **Gráficos** | Cariograma, mapa de calor por imagen y par, confianza del modelo y más, con glosario. |
-| **Laboratorio** | 	Prueba una imagen con distintos valores de conf e iou y compara cuántos cromosomas detecta. |
 | **Sobre el modelo** | Datos del entrenamiento, métricas, curvas y limitaciones. |
 
 ---
@@ -352,8 +343,7 @@ analizador-cromosomas/
 ├── funciones/
 │   ├── analisis_imagen.py
 │   ├── modelo_cromosomas.py
-│   ├── resultados.py
-│   └── estadisticas_bd.py
+│   └── resultados.py
 │
 ├── dashboard/
 │   ├── app.py
@@ -385,14 +375,13 @@ analizador-cromosomas/
 | `requirements.txt` | Dependencias de Python |
 | `interfaz/` | Componentes de la interfaz gráfica |
 | `interfaz.py` | Ventana principal, guardado e historial |
-| `pestana_estadisticas.py` | Pestaña de tablas y gráficos |
+| `pestana_estadisticas.py` | Pestaña de tablas e indicadores |
 | `funciones/` | Lógica principal del análisis |
 | `analisis_imagen.py` | Procesamiento y análisis de imágenes |
 | `modelo_cromosomas.py` | Gestión del modelo de detección |
 | `resultados.py` | Procesamiento y presentación de resultados |
 | `dashboard/` | Dashboard web en Streamlit (detección, revisión, estadísticas) |
 | `resultados.py` | Procesamiento, clasificación y presentación de resultados |
-| `estadisticas_bd.py` | Consultas a las vistas de estadísticas |
 | `utils/` | Configuraciones y utilidades |
 | `db_config.py` | Configuración de conexión a MySQL |
 | `models/` | Archivos relacionados con el modelo YOLO |

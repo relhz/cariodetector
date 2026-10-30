@@ -1,10 +1,6 @@
 from pathlib import Path
 from ultralytics import YOLO
-import numpy as np
 
-
-# Nombres de las 24 clases en el orden que el modelo espera
-# DEBE coincidir con el orden de clases del modelo entrenado
 NOMBRES_CLASES = [
     "cromosoma 1", "cromosoma 2", "cromosoma 3", "cromosoma 4",
     "cromosoma 5", "cromosoma 6", "cromosoma 7", "cromosoma 8",
@@ -48,13 +44,12 @@ class DetectorCromosomas:
         
         return self._cargado and self.modelo is not None
 
-    def detectar(self, imagen, conf_threshold=0.25):
+    def detectar(self, imagen, conf_threshold=0.35):
         
         if not self.esta_cargado():
             self.cargar_modelo()
 
         try:
-            # Ultralytics acepta numpy array o ruta
             resultados = self.modelo(imagen, conf=conf_threshold, verbose=False) # type: ignore
 
             detecciones = []
@@ -99,18 +94,3 @@ class DetectorCromosomas:
             return NOMBRES_CLASES[clase_id]
 
         return f"clase_desconocida_{clase_id}"
-
-def crear_detector():
-    
-    detector = DetectorCromosomas()
-    detector.cargar_modelo()
-    return detector
-
-
-if __name__ == "__main__":
-    try:
-        detector = crear_detector()
-        print("Detector listo")
-        print(f"Clases: {NOMBRES_CLASES}")
-    except Exception as e:
-        print(f"Error: {e}")
