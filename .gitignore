@@ -26,9 +26,13 @@ __pycache__/
 # Archivos del sistema
 .DS_Store
 Thumbs.db
+opencode.json
 
 # Imagenes de prueba
 assets/imagenes/
 
 # Imagenes analizadas
 assets/imagenes_analizadas/
+
+# Presentación
+presentacion/
