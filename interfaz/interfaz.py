@@ -23,9 +23,7 @@ from utils.db_config import obtener_conexion, probar_conexion
 
 
 class InterfazCromosomas:
-    """
-    Ventana principal de la aplicación.
-    """
+
 
     def __init__(self, root):
         self.root = root
@@ -458,6 +456,7 @@ class InterfazCromosomas:
         self._limpiar_panel_detalle()
 
     # ===== Revisión visual de detecciones =====
+
     def _indice_seleccionado(self):
         """Devuelve el índice de la detección seleccionada, o None."""
         seleccion = self.tree.selection()
@@ -792,7 +791,6 @@ class InterfazCromosomas:
                 conexion.close()
 
     def _mostrar_historial(self):
-        """Abre ventana con historial de análisis guardados."""
         # Probar conexión
         exito, msg = probar_conexion()
         if not exito:
@@ -894,7 +892,6 @@ class InterfazCromosomas:
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo cargar historial:\n{e}")
 
-    # ===== Revisión de clasificaciones y resultado =====
     def _revisar_seleccionado(self, tree_hist):
         """Abre la revisión del estudio seleccionado en el historial."""
         seleccion = tree_hist.selection()
@@ -1233,6 +1230,7 @@ class InterfazCromosomas:
         ).pack(side=tk.RIGHT)
 
     # ===== Métodos para zoom y pan sincronizados =====
+    
     def _redibujar_canvas(self, canvas):
         """Redibuja la imagen y sus overlays en el canvas con la transformación actual."""
         canvas.delete("all")

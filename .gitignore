@@ -27,6 +27,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 opencode.json
+.agents/
 
 # Imagenes analizadas
 assets/imagenes_analizadas/
