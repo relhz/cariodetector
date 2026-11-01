@@ -17,9 +17,9 @@ RUTA_PESOS = "models/best_24_chromosomes.pt"
 CONF_UMBRAL = 0.25   # confianza mínima para aceptar una detección
 IOU_UMBRAL = 0.70    # solapamiento máximo entre cajas (evita duplicados)
 CONF_REVISION = 0.50  # por debajo de esta confianza, la detección se marca para revisar
-# Archivo de la pestaña "Sobre el modelo" (results.csv, el registro del entrenamiento)
+# Archivo de la pestaña "Sobre el modelo" (results_yolov8l.csv, el registro del entrenamiento)
 RUTA_INFO = Path(__file__).resolve().parent / "modelo_info"
-# Datos del entrenamiento, leídos de los metadatos de los pesos
+# Datos del entrenamiento
 INFO_MODELO = {
     "Modelo base": "YOLOv8l (preentrenado en COCO)",
     "Tarea": "Detección de objetos, 24 clases (A1…G22, X, Y)",
@@ -33,12 +33,12 @@ INFO_MODELO = {
 # Métricas finales en validación, guardadas dentro de los pesos (train_metrics)
 METRICAS_FINALES = {"Precisión": 0.99088, "Recall": 0.98243,
                     "mAP@50": 0.99355, "mAP@50-95": 0.86743}
-# Carpeta (en la raíz del repo) donde se copian las imágenes guardadas desde el dashboard
+# Carpeta donde se copian las imágenes guardadas desde el dashboard
 CARPETA_IMAGENES = Path(__file__).resolve().parent.parent / "assets" / "imagenes_analizadas"
 
 alt.data_transformers.disable_max_rows()
 
-# ---------- Colores: el mismo significado en todo el dashboard ----------
+# Colores: el mismo significado en todo el dashboard 
 NORMAL = "Normal (2 copias)"
 DE_MAS = "De más (3 o más)"
 DE_MENOS = "De menos (0 o 1)"
@@ -48,7 +48,7 @@ COLORES = ["#2E7D32", "#C62828", "#D97706", "#78909C"]
 ESCALA_ESTADO = alt.Scale(domain=ESTADOS, range=COLORES)
 AZUL = "#4C78A8"
 
-
+#Funciones para los pares según cantidad y grupo 
 def estado_par(par, n):
     """Estado de un par según cuántas copias se detectaron."""
     if par in ("X", "Y"):
@@ -77,7 +77,7 @@ ORDEN_FILAS = [ETIQUETA_GRUPO[g] for g in GRUPOS] + [ETIQUETA_SEXUALES]
 def eje_entero(minimo, maximo, titulo):
     """Eje con marcas solo en números enteros (sin 0.5, 1.5...)."""
     minimo, maximo = int(minimo), int(maximo)
-    paso = max(1, -(-(maximo - minimo) // 8))   # como mucho ~8 marcas
+    paso = max(1, -(-(maximo - minimo) // 8))   #Hasta 8 marcas
     return alt.Axis(title=titulo, values=list(range(minimo, maximo + 1, paso)), format="d")
 
 
@@ -88,7 +88,7 @@ def matriz_conteos(d):
     return m.reindex(columns=PARES_ORDEN, fill_value=0)
 
 
-# ---------- Gráficos ----------
+# Gráficos 
 def cariograma(fila):
     """Grilla de pares agrupados A–G. fila: Serie con la cantidad de cada par."""
     celdas = []
@@ -168,7 +168,7 @@ def _categoria_imagen(fila):
     return CAT_SIN
 
 
-def dona_alertas(m):
+def img_alertas(m):
     """Cuántas imágenes salieron sin alertas / con pares de más / de menos."""
     cats = m[PARES_AUTOSOMICOS].apply(_categoria_imagen, axis=1)
     cantidades = [int((cats == c).sum()) for c in CATEGORIAS_IMG]
@@ -262,7 +262,7 @@ def imagenes_por_dia(d):
     ).properties(width="container", height=260)
 
 
-# ===== FIN FUNCIONES DE GRÁFICOS =====
+# FIN FUNCIONES DE GRÁFICOS
 
 st.set_page_config(page_title="CarioDetector", layout="wide")
 st.title("🧬 CarioDetector")
@@ -307,7 +307,7 @@ def explicar(que, como):
     st.caption(f"**Qué muestra:** {que}  \n**Cómo leerlo:** {como}")
 
 
-# ---------- Revisión: reglas simples para decidir si una imagen necesita ojo humano ----------
+# Revisión: Para revisión de un profesional 
 def contar(clases):
     """Cuenta cuántas veces aparece cada clase en una lista, usando list.count().
     Devuelve un diccionario {clase: cantidad}; con .get(par, 0) se consulta un par."""
@@ -342,7 +342,7 @@ def _orden_par(par):
     return PARES_ORDEN.index(par) if par in PARES_ORDEN else 99
 
 
-# Color de la caja: uno por clase (24 colores bien separados entre sí)
+# Color de la caja: uno por clase
 def _paleta_clases():
     import colorsys
     nombres = [f"{g}{n}" for g, ns in (("A", (1, 2, 3)), ("B", (4, 5)), ("C", range(6, 13)),
@@ -363,10 +363,8 @@ COLOR_CLASE = _paleta_clases()
 def _color_bgr(clase):
     return COLOR_CLASE.get(str(clase).strip().upper(), (117, 117, 117))
 
-
+#Dibuja las cajas con el color de la clase final. La etiqueta lleva fondo de color, '?' marca confianza baja (conviene revisar) y '*' una etiqueta corregida por el profesional
 def dibujar(imagen, dets, resaltar=None):
-    """Dibuja las cajas con el color de la clase final. La etiqueta lleva fondo de color;
-    '?' marca confianza baja (conviene revisar) y '*' una etiqueta corregida por el profesional."""
     salida = imagen.copy()
     esc = max(0.4, min(salida.shape[:2]) / 1400)
     for d in dets:
@@ -386,10 +384,8 @@ def dibujar(imagen, dets, resaltar=None):
                     (255, 255, 255), 1, cv2.LINE_AA)
     return salida
 
-
+#Zoom para las imagenes
 def visor_zoom(original, analizada, alto=520, titulos=("Imagen original", "Imagen analizada"), foco=None):
-    """Muestra la imagen original y la analizada lado a lado, con zoom (rueda del mouse o botones)
-    y arrastre para moverse. Las dos imágenes se mueven y se acercan juntas."""
     def _b64(img):
         h, w = img.shape[:2]
         if max(h, w) > 1800:
@@ -456,15 +452,13 @@ window.addEventListener('resize',ajustar);
     html_vis = (pagina.replace("__ALTO__", str(alto)).replace("__A__", _b64(original)).replace("__B__", _b64(analizada))
                            .replace("__T1__", html.escape(titulos[0])).replace("__T2__", html.escape(titulos[1]))
                            .replace("__FOCO__", foco_js))
-    if hasattr(st, "iframe"):      # Streamlit reciente (st.components.v1.html quedó en desuso)
+    if hasattr(st, "iframe"):     
         st.iframe(html_vis, height=alto + 90)
     else:
         st.components.v1.html(html_vis, height=alto + 90)
 
-
+#Cariograma con recortes para ver cada par etiquetado 
 def cariograma_recortes(imagen, dets, celda=(120, 190), margen=0.12):
-    """Arma un cariograma: los recortes de cada cromosoma ordenados por par (1 a 22, X, Y).
-    El rótulo de un par autosómico va en rojo si no tiene exactamente 2 cromosomas."""
     cw, ch = celda
     pie = 26
     filas_pares = [PARES_ORDEN[:12], PARES_ORDEN[12:]]
@@ -496,15 +490,12 @@ def cariograma_recortes(imagen, dets, celda=(120, 190), margen=0.12):
 
 
 def detecciones_normalizadas(crudas):
-    """Pasa las detecciones del modelo al formato interno (clase en formato A1…G22)."""
     return [{"caja": tuple(int(v) for v in d["caja"]),
              "clase_modelo": nombre_par(d["clase"]),
              "confianza": float(d["confianza"])} for d in crudas]
 
 
 def informe_html(nombre, conteo, motivos, filas, png_b64=None, parametros=None, notas=None):
-    """Informe de un análisis como página HTML (se abre en el navegador y se puede
-    imprimir o guardar como PDF)."""
     esc = html.escape
     etiquetas = {NORMAL: ("Normal", "#E8F5E9"), DE_MAS: ("De más", "#FFEBEE"),
                  DE_MENOS: ("De menos", "#FFF3E0"), SEXUAL: ("Según sexo", "#ECEFF1")}
@@ -553,11 +544,9 @@ def png_base64(imagen, ancho_max=1200):
     ok, buf = cv2.imencode(".png", imagen)
     return base64.b64encode(buf.tobytes()).decode("ascii") if ok else None
 
-
+#Cariotipo aproximado a partir del conteo por par, con el mismo formato que la sugerencia de la interfaz Tkinter
 def sugerir_cariotipo(conteo):
-    """Cariotipo aproximado a partir del conteo por par, con el mismo formato que la sugerencia
-    de la interfaz Tkinter (funciones/resultados.py): total, sexo y ganancias o pérdidas.
-    Ejemplos: '46,XX' · '47,XY,+21' · '45,XX,-18'. Devuelve (cariotipo, alteraciones)."""
+    de la interfaz Tkinter
     total = sum(n for par, n in conteo.items() if par in PARES_ORDEN)
     x, y = conteo.get("X", 0), conteo.get("Y", 0)
     sexo = "?" if x == 0 and y == 0 else "X" * x + "Y" * y
@@ -679,7 +668,7 @@ def mostrar_resultado(imagen, u):
                 marca = f"{datetime.now():%Y%m%d_%H%M%S}"
                 ruta = CARPETA_IMAGENES / f"{marca}_{u['archivo']}"
                 ruta.write_bytes(u["bytes"])
-                # imagen con las cajas dibujadas (es la "imagen_resultado" del estudio)
+                # imagen con las cajas dibujadas
                 ruta_res = CARPETA_IMAGENES / f"{marca}_resultado_{Path(u['archivo']).stem}.png"
                 cv2.imwrite(str(ruta_res), dibujada)
             if revisado:
@@ -720,7 +709,7 @@ def mostrar_resultado(imagen, u):
     st.caption("El informe se abre en el navegador; desde ahí se puede imprimir o guardar como PDF.")
 
 
-# ---------- Laboratorio de parámetros ----------
+#Laboratorio de parámetros
 def _resumen_deteccion(dets):
     conteo = contar([d["clase_modelo"] for d in dets])
     n_baja = sum(1 for d in dets if d["confianza"] < CONF_REVISION)
@@ -852,7 +841,7 @@ def panel_laboratorio():
     panel_comparar_modelos(imagen, subida.name, conf, iou)
 
 
-# ---------- Sobre el modelo ----------
+#Sobre el modelo 
 @st.cache_data(ttl=60)
 def _revision_cacheada():
     return cargar_revision()
@@ -889,7 +878,6 @@ MODELOS_INFO = {
 
 
 def _leer_results(nombre_csv):
-    """Lee un results.csv de modelo_info/; devuelve None si no está."""
     ruta = RUTA_INFO / nombre_csv
     if not ruta.exists():
         return None
@@ -1071,8 +1059,7 @@ def pestana_modelo():
 - Es una herramienta de **apoyo**: toda alerta debe ser validada por un profesional.
 """)
 
-
-# ---------- Filtros (barra lateral) ----------
+# Los filtros de la solapa
 df_f = df
 with st.sidebar:
     st.header("Filtros")
@@ -1084,16 +1071,10 @@ with st.sidebar:
         fmin, fmax = df["fecha"].min().date(), df["fecha"].max().date()
         rango = st.date_input("Fecha de la muestra", value=(fmin, fmax),
                               min_value=fmin, max_value=fmax)
-        personas = []
-        if df["persona_id"].notna().any():   # la base real no tiene personas
-            personas = st.multiselect("Persona (id)",
-                                      sorted(df["persona_id"].dropna().unique().tolist()))
         archivos = st.multiselect("Imagen", sorted(df["archivo"].unique().tolist()))
         if len(rango) == 2:
             df_f = df_f[(df_f["fecha"].dt.date >= rango[0]) &
                         (df_f["fecha"].dt.date <= rango[1])]
-        if personas:
-            df_f = df_f[df_f["persona_id"].isin(personas)]
         if archivos:
             df_f = df_f[df_f["archivo"].isin(archivos)]
 
@@ -1103,7 +1084,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
     ["Subir y detectar", "Dashboard", "Historial de sesión", "Gráficos", "Laboratorio",
      "Sobre el modelo"])
 
-# ---------- TAB 1: subir y detectar ----------
+#  TAB 1: subir y detectar
 with tab1:
     archivo = st.file_uploader("Subí una imagen de cariotipo", type=["jpg", "jpeg", "png"])
     if archivo is not None:
@@ -1138,7 +1119,7 @@ with tab1:
         else:
             st.image(imagen, channels="BGR", caption="Imagen cargada")
 
-# ---------- TAB 2: dashboard ----------
+# TAB 2: dashboard 
 with tab2:
     mostrar_origen()
     if df_f.empty:
@@ -1199,7 +1180,7 @@ with tab2:
                                detalle.to_csv(index=False).encode("utf-8"),
                                "detecciones.csv", "text/csv")
 
-# ---------- TAB 3: historial de la sesión ----------
+# TAB 3: historial de la sesión 
 with tab3:
     st.subheader("Pruebas hechas en esta sesión")
     if st.session_state.historial_pruebas:
@@ -1207,7 +1188,7 @@ with tab3:
     else:
         st.info("Todavía no probaste ninguna imagen en esta sesión")
 
-# ---------- TAB 4: gráficos ----------
+# TAB 4: gráficos
 with tab4:
     mostrar_origen()
     st.caption("Herramienta de apoyo para el análisis de cariotipos. "
@@ -1295,10 +1276,10 @@ with tab4:
                      "cada punto es un día con al menos una imagen.")
             st.altair_chart(imagenes_por_dia(df_f))
 
-# ---------- TAB 5: laboratorio ----------
+# TAB 5: laboratorio 
 with tab5:
     panel_laboratorio()
 
-# ---------- TAB 6: sobre el modelo ----------
+#  TAB 6: sobre el modelo 
 with tab6:
     pestana_modelo()
