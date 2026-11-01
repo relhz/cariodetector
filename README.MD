@@ -1,3 +1,4 @@
+
 # 🧬 Cariodetector
 
 Aplicación de escritorio y nube desarrollada en **Python** para el análisis de imágenes microscópicas de cromosomas humanos mediante técnicas de **visión artificial e inteligencia artificial**.
@@ -319,10 +320,12 @@ Además de la interfaz de escritorio, el proyecto incluye un dashboard web que u
 ### *Contenidos* 
 | Pestaña| Para qué sirve |
 |---|---|
-| **Subir y detectar** | Sube una imagen y muestra un semáforo (OK / Revisar) con los motivos. El profesional puede corregir la etiqueta de cada detección o descartarla, guardar el análisis y descargar un informe (HTML) y las detecciones (CSV). |
+| **Subir y detectar** | Sube una imagen y muestra un semáforo (OK / Revisar) con los motivos. Se pueden filtrar las clases que se ven, resaltar y acercar una detección y armar un cariograma con los recortes ordenados por par. Indica cuánto tardó la detección. El profesional puede corregir la etiqueta de cada detección o descartarla, guardar el análisis y descargar un informe (HTML) y las detecciones (CSV). |
 | **Dashboard** | Indicadores y tablas de todos los análisis guardados, con su estado de revisión. |
+| **Historial de sesión** | Pruebas hechas desde que se abrió la página. |
 | **Gráficos** | Cariograma, mapa de calor por imagen y par, confianza del modelo y más, con glosario. |
-| **Sobre el modelo** | Datos del entrenamiento, métricas, curvas y limitaciones. |
+| **Laboratorio** | Prueba una imagen con distintos valores de confianza (conf) e IoU (iou) y compara cuántos cromosomas detecta, para elegir los parámetros con datos. También compara dos modelos (Yolo V8l y Yolo V8s) sobre la misma imagen: cantidad, pares con cantidad distinta de 2, confianza y tiempo. |
+| **Sobre el modelo** | Ficha, métricas y curvas del modelo actual (YOLOv8l) y del anterior (YOLOv8s), con una vista que los compara; además limitaciones y, cuando hay análisis revisados, los errores reales corregidos por profesionales. |
 
 ---
 
