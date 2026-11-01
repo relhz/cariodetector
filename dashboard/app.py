@@ -19,14 +19,14 @@ CONF_REVISION = 0.50  # por debajo de esta confianza, la detección se marca par
 RUTA_INFO = Path(__file__).resolve().parent / "modelo_info"
 # Datos del entrenamiento, leídos de los metadatos de los pesos
 INFO_MODELO = {
-    "Modelo base": "YOLOv8s (preentrenado en COCO)",
+    "Modelo base": "YOLOv8l (preentrenado en COCO)",
     "Tarea": "Detección de objetos, 24 clases (A1…G22, X, Y)",
-    "Épocas": "60",
+    "Épocas": "40",
     "Tamaño de imagen": "640 px",
     "Batch": "16",
     "Optimizador": "AdamW",
-    "Fecha de entrenamiento": "3 de octubre de 2026",
-    "Librería": "Ultralytics 8.4.172",
+    "Fecha de entrenamiento": "30 de octubre de 2026",
+    "Librería": "Ultralytics 8.4.193",
 }
 # Carpeta (en la raíz del repo) donde se copian las imágenes guardadas desde el dashboard
 CARPETA_IMAGENES = Path(__file__).resolve().parent.parent / "assets" / "imagenes_analizadas"
