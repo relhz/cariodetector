@@ -546,7 +546,6 @@ def png_base64(imagen, ancho_max=1200):
 
 #Cariotipo aproximado a partir del conteo por par, con el mismo formato que la sugerencia de la interfaz Tkinter
 def sugerir_cariotipo(conteo):
-    de la interfaz Tkinter
     total = sum(n for par, n in conteo.items() if par in PARES_ORDEN)
     x, y = conteo.get("X", 0), conteo.get("Y", 0)
     sexo = "?" if x == 0 and y == 0 else "X" * x + "Y" * y
