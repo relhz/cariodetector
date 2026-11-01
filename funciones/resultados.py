@@ -1,7 +1,6 @@
 from collections import Counter
 
-
-# Clases que produce el modelo, en orden cromosómico (grupos Denver).
+# Clases que produce el modelo
 CLASES_CROMOSOMA = (
     ["A1", "A2", "A3", "B4", "B5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "D13", "D14", "D15", "E16", "E17", "E18", "F19", "F20", "G21", "G22", "X", "Y"]
 )
@@ -49,7 +48,7 @@ def preparar_detecciones(detecciones):
 
 
 def _numero_cromosoma(codigo):
-    """Convierte 'A1', 'C10', 'X' o 'Y' al número/letra del cromosoma."""
+
     codigo = (codigo or "").strip().upper()
 
     if codigo in ("X", "Y"):
@@ -64,7 +63,7 @@ def _numero_cromosoma(codigo):
 
 
 def clave_orden_clase(nombre):
-    """Clave para ordenar clases como A1, A2, ..., G22, X, Y."""
+
     numero = _numero_cromosoma(nombre)
 
     if numero is None:
@@ -78,9 +77,7 @@ def clave_orden_clase(nombre):
 
 
 def sugerir_cariotipo(asignaciones):
-    """
-    Arma un cariotipo aproximado a partir de las clases asignadas.
-    """
+
     conteo = Counter()
 
     for codigo in asignaciones:
@@ -120,12 +117,7 @@ def sugerir_cariotipo(asignaciones):
 
 
 def detecciones_a_tabla(detecciones):
-    """
-    Prepara las filas de la tabla de detecciones.
 
-    Cada fila incluye la clase detectada por el modelo, la clase efectiva
-    (eventualmente corregida) y si hubo una corrección.
-    """
     filas = []
 
     for indice, det in enumerate(detecciones):
@@ -145,13 +137,7 @@ def detecciones_a_tabla(detecciones):
 
 
 def recortar_deteccion(imagen, bbox, margen=0.15):
-    """
-    Recorta la región de una detección de la imagen original.
 
-    `bbox` viene en formato [cx, cy, w, h] normalizado. Se agrega un margen
-    relativo al tamaño de la caja para no cortar los brazos del cromosoma.
-    Devuelve el fragmento BGR o None si no se puede recortar.
-    """
     if imagen is None or not bbox or len(bbox) < 4:
         return None
 
@@ -226,10 +212,6 @@ def detecciones_para_bd(detecciones, ancho_imagen, alto_imagen):
     """
     Convierte las detecciones del modelo al formato que espera la tabla
     `cromosomas`.
-
-    El modelo entrega [x_centro, y_centro, ancho, alto] normalizados (0..1),
-    mientras que la base guarda la esquina superior izquierda y el tamaño en
-    píxeles enteros.
     """
     filas = []
 

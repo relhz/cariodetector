@@ -43,12 +43,7 @@ class AnalizadorImagen:
         }
 
     def redibujar_anotada(self, detecciones=None):
-        """
-        Vuelve a dibujar la imagen anotada con las detecciones indicadas.
-
-        Se usa después de corregir la clase de una detección para que las
-        etiquetas de la imagen coincidan con la revisión del profesional.
-        """
+ 
         if self.imagen_original is None:
             raise ValueError("No hay imagen cargada. Use cargar_imagen() primero.")
 
@@ -77,7 +72,7 @@ class AnalizadorImagen:
             w = int(bbox[2] * ancho)
             h = int(bbox[3] * alto)
 
-            # Coordenadas esquina superior izquierda
+            # Coordenadas esquinas
             x1 = max(0, x_center - w // 2)
             y1 = max(0, y_center - h // 2)
             x2 = min(ancho, x_center + w // 2)
@@ -96,8 +91,7 @@ class AnalizadorImagen:
             # Fondo de la etiqueta
             cv2.rectangle(imagen_anotada, (x1, y1 - th - 4), (x1 + tw + 4, y1), color, -1)
             # Texto
-            cv2.putText(imagen_anotada, etiqueta, (x1 + 2, y1 - 4),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.putText(imagen_anotada, etiqueta, (x1 + 2, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
         return imagen_anotada
 

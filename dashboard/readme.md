@@ -5,8 +5,9 @@ y ver estadísticas de los análisis guardados en MySQL.
 
 ## Requisitos
 
-- Necesita los pesos del modelo en models/best_24_chromosomes.pt. Se recomienda Python 3.10 a 3.12. 
-- Si no hay base de datos conectada, el dashboard avisa y muestra datos de demostración (con un cartel rojo: no son resultados reales).
+- Python 3.10 o superior
+- Los pesos del modelo en models/ (ver RUTA_PESOS en app.py). Para comparar con el YOLOv8s anterior, guardarlo en local como models/best_24_chromosomes_v8s.pt (está en .gitignore, no se sube al repo)
+- MySQL local con la base creada (opcional; sin base muestra datos de demostración)
 
 ## Cómo correrlo
 
@@ -27,15 +28,16 @@ Se abre en el navegador en http://localhost:8501.
 
 ## Parámetros de detección
 
-El dashboard usa conf = 0.35 (confianza mínima) e iou = 0.40 (solapamiento máximo entre cajas). 
-Se pueden cambiar en dashboard/app.py (CONF_UMBRAL e IOU_UMBRAL).
-Conviene que la interfaz Tkinter use los mismos valores.
+- El dashboard usa conf = 0.25 (confianza mínima) e iou = 0.70 (solapamiento máximo entre cajas). 
+- Se pueden cambiar en dashboard/app.py (CONF_UMBRAL e IOU_UMBRAL).
+- Conviene que la interfaz Tkinter use los mismos valores.
 
 ## Archivos
 
 - `app.py`: la aplicación.
 - `modelo.py`: carga el modelo YOLO y detecta.
 - `db.py`: conexión y consultas a MySQL, datos de demostración.
+- `modelo_info/`: results_yolov8l.csv y results_yolov8s.csv (registros del entrenamiento de cada modelo), que usa la pestaña "Sobre el modelo".
 
 ## Aviso importante
 
