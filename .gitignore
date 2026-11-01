@@ -28,9 +28,6 @@ __pycache__/
 Thumbs.db
 opencode.json
 
-# Imagenes de prueba
-assets/imagenes/
-
 # Imagenes analizadas
 assets/imagenes_analizadas/
 
