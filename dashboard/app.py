@@ -5,6 +5,8 @@ import pandas as pd
 import altair as alt
 import base64
 import html
+import json
+import time
 from datetime import datetime
 from pathlib import Path
 from modelo import DetectorCromosomas
@@ -12,8 +14,8 @@ from db import (cargar_datos, guardar_analisis, cargar_revision, nombre_par,
                 PARES_AUTOSOMICOS, PARES_ORDEN)
 
 RUTA_PESOS = "models/best_24_chromosomes.pt"
-CONF_UMBRAL = 0.35   # confianza mínima para aceptar una detección
-IOU_UMBRAL = 0.40    # solapamiento máximo entre cajas (evita duplicados)
+CONF_UMBRAL = 0.25   # confianza mínima para aceptar una detección
+IOU_UMBRAL = 0.70    # solapamiento máximo entre cajas (evita duplicados)
 CONF_REVISION = 0.50  # por debajo de esta confianza, la detección se marca para revisar
 # Archivo de la pestaña "Sobre el modelo" (results.csv, el registro del entrenamiento)
 RUTA_INFO = Path(__file__).resolve().parent / "modelo_info"
@@ -28,6 +30,9 @@ INFO_MODELO = {
     "Fecha de entrenamiento": "30 de octubre de 2026",
     "Librería": "Ultralytics 8.4.193",
 }
+# Métricas finales en validación, guardadas dentro de los pesos (train_metrics)
+METRICAS_FINALES = {"Precisión": 0.99088, "Recall": 0.98243,
+                    "mAP@50": 0.99355, "mAP@50-95": 0.86743}
 # Carpeta (en la raíz del repo) donde se copian las imágenes guardadas desde el dashboard
 CARPETA_IMAGENES = Path(__file__).resolve().parent.parent / "assets" / "imagenes_analizadas"
 
@@ -337,22 +342,157 @@ def _orden_par(par):
     return PARES_ORDEN.index(par) if par in PARES_ORDEN else 99
 
 
-def dibujar(imagen, dets):
-    """Dibuja las cajas: verde (confianza suficiente), naranja (confianza baja) y
-    violeta (etiqueta corregida por el profesional)."""
+# Color de la caja: uno por clase (24 colores bien separados entre sí)
+def _paleta_clases():
+    import colorsys
+    nombres = [f"{g}{n}" for g, ns in (("A", (1, 2, 3)), ("B", (4, 5)), ("C", range(6, 13)),
+               ("D", (13, 14, 15)), ("E", (16, 17, 18)), ("F", (19, 20)), ("G", (21, 22)))
+               for n in ns] + ["X", "Y"]
+    pal = {}
+    for i, nombre in enumerate(nombres):
+        h = (i * 0.381966) % 1.0          # ángulo áureo: clases vecinas quedan bien distintas
+        v = 0.62 if 0.12 < h < 0.45 else 0.78   # verdes/amarillos más oscuros para leer el texto blanco
+        r, g, b = colorsys.hsv_to_rgb(h, 0.85, v)
+        pal[nombre] = (int(b * 255), int(g * 255), int(r * 255))   # BGR
+    return pal
+
+
+COLOR_CLASE = _paleta_clases()
+
+
+def _color_bgr(clase):
+    return COLOR_CLASE.get(str(clase).strip().upper(), (117, 117, 117))
+
+
+def dibujar(imagen, dets, resaltar=None):
+    """Dibuja las cajas con el color de la clase final. La etiqueta lleva fondo de color;
+    '?' marca confianza baja (conviene revisar) y '*' una etiqueta corregida por el profesional."""
     salida = imagen.copy()
+    esc = max(0.4, min(salida.shape[:2]) / 1400)
     for d in dets:
         x1, y1, x2, y2 = [int(v) for v in d["caja"]]
-        if d["clase_final"] != d["clase_modelo"]:
-            color = (200, 0, 200)
-        elif d["confianza"] < CONF_REVISION:
-            color = (0, 140, 255)
-        else:
-            color = (0, 200, 0)
-        cv2.rectangle(salida, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(salida, f"{d['clase_final']} {d['confianza']:.2f}", (x1, max(14, y1 - 5)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        color = _color_bgr(d["clase_final"])
+        dudosa = d["confianza"] < CONF_REVISION
+        corregida = d["clase_final"] != d["clase_modelo"]
+        if resaltar is not None and d.get("n") == resaltar:
+            cv2.rectangle(salida, (x1 - 5, y1 - 5), (x2 + 5, y2 + 5), (255, 255, 255), 4)
+            cv2.rectangle(salida, (x1 - 5, y1 - 5), (x2 + 5, y2 + 5), (0, 0, 0), 1)
+        cv2.rectangle(salida, (x1, y1), (x2, y2), color, 3 if dudosa else 2)
+        texto = f"{d['clase_final']} {d['confianza']:.2f}" + ("?" if dudosa else "") + ("*" if corregida else "")
+        (tw, th), base = cv2.getTextSize(texto, cv2.FONT_HERSHEY_SIMPLEX, esc, 1)
+        ytop = max(th + base + 2, y1)
+        cv2.rectangle(salida, (x1, ytop - th - base - 2), (x1 + tw + 4, ytop), color, -1)
+        cv2.putText(salida, texto, (x1 + 2, ytop - base), cv2.FONT_HERSHEY_SIMPLEX, esc,
+                    (255, 255, 255), 1, cv2.LINE_AA)
     return salida
+
+
+def visor_zoom(original, analizada, alto=520, titulos=("Imagen original", "Imagen analizada"), foco=None):
+    """Muestra la imagen original y la analizada lado a lado, con zoom (rueda del mouse o botones)
+    y arrastre para moverse. Las dos imágenes se mueven y se acercan juntas."""
+    def _b64(img):
+        h, w = img.shape[:2]
+        if max(h, w) > 1800:
+            f = 1800 / max(h, w)
+            img = cv2.resize(img, (int(w * f), int(h * f)), interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        return base64.b64encode(buf).decode()
+    h0, w0 = original.shape[:2]
+    f = min(1.0, 1800 / max(h0, w0))
+    foco_js = json.dumps([round(v * f, 1) for v in foco]) if foco else "null"
+    pagina = """
+<style>
+ body{margin:0;font-family:sans-serif;color-scheme:light dark}
+ .barra{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+ .barra button{padding:4px 12px;border:1px solid #888;border-radius:6px;background:#f2f2f2;
+   color:#222;cursor:pointer;font-size:14px}
+ .barra span{font-size:12px;color:#888}
+ .par{display:flex;gap:8px}
+ .caja{flex:1;min-width:0}
+ .tit{font-size:13px;font-weight:600;margin:0 0 3px 2px}
+ .pane{position:relative;overflow:hidden;height:__ALTO__px;background:#ececec;
+   border:1px solid #aaa;border-radius:6px;cursor:grab;touch-action:none}
+ .pane img{position:absolute;left:0;top:0;transform-origin:0 0;user-select:none;
+   -webkit-user-drag:none;max-width:none}
+</style>
+<div class="barra">
+ <button id="mas">＋</button><button id="menos">－</button>
+ <button id="ajustar">Ajustar a ventana</button><button id="uno">100 %</button>
+ <span>Rueda del mouse para acercar · arrastrá para mover · doble clic para ajustar</span>
+</div>
+<div class="par">
+ <div class="caja"><p class="tit">__T1__</p><div class="pane"><img id="i1" src="data:image/jpeg;base64,__A__"></div></div>
+ <div class="caja"><p class="tit">__T2__</p><div class="pane"><img id="i2" src="data:image/jpeg;base64,__B__"></div></div>
+</div>
+<script>
+const panes=[...document.querySelectorAll('.pane')], imgs=[i1,i2];
+let k=1,tx=0,ty=0,k0=1;const foco=__FOCO__;
+function aplicar(){imgs.forEach(i=>i.style.transform=`translate(${tx}px,${ty}px) scale(${k})`);}
+function ajustar(){const p=panes[0],w=imgs[0].naturalWidth,h=imgs[0].naturalHeight;
+  if(!w)return;k0=Math.min(p.clientWidth/w,p.clientHeight/h);k=k0;
+  tx=(p.clientWidth-w*k)/2;ty=(p.clientHeight-h*k)/2;aplicar();}
+function zoom(f,cx,cy){const n=Math.min(Math.max(k*f,k0*0.5),k0*20);f=n/k;
+  tx=cx-(cx-tx)*f;ty=cy-(cy-ty)*f;k=n;aplicar();}
+panes.forEach(p=>{
+  p.addEventListener('wheel',e=>{e.preventDefault();const r=p.getBoundingClientRect();
+    zoom(e.deltaY<0?1.2:1/1.2,e.clientX-r.left,e.clientY-r.top);},{passive:false});
+  let d=null;
+  p.addEventListener('pointerdown',e=>{d={x:e.clientX,y:e.clientY};p.setPointerCapture(e.pointerId);p.style.cursor='grabbing';});
+  p.addEventListener('pointermove',e=>{if(!d)return;tx+=e.clientX-d.x;ty+=e.clientY-d.y;d={x:e.clientX,y:e.clientY};aplicar();});
+  p.addEventListener('pointerup',()=>{d=null;p.style.cursor='grab';});
+  p.addEventListener('dblclick',ajustar);
+});
+const c=()=>[panes[0].clientWidth/2,panes[0].clientHeight/2];
+mas.onclick=()=>zoom(1.4,...c());menos.onclick=()=>zoom(1/1.4,...c());
+ajustar_btn=document.getElementById('ajustar');ajustar_btn.onclick=ajustar;
+uno.onclick=()=>{const [cx,cy]=c();zoom(1/k,cx,cy);};
+function inicio(){ajustar();if(!foco)return;const p=panes[0],bw=foco[2]-foco[0],bh=foco[3]-foco[1];
+  k=Math.max(Math.min(p.clientWidth/(bw*3),p.clientHeight/(bh*3),k0*20),k0);
+  tx=p.clientWidth/2-(foco[0]+bw/2)*k;ty=p.clientHeight/2-(foco[1]+bh/2)*k;aplicar();}
+imgs[0].onload=inicio;if(imgs[0].complete)inicio();
+window.addEventListener('resize',ajustar);
+</script>
+"""
+    html_vis = (pagina.replace("__ALTO__", str(alto)).replace("__A__", _b64(original)).replace("__B__", _b64(analizada))
+                           .replace("__T1__", html.escape(titulos[0])).replace("__T2__", html.escape(titulos[1]))
+                           .replace("__FOCO__", foco_js))
+    if hasattr(st, "iframe"):      # Streamlit reciente (st.components.v1.html quedó en desuso)
+        st.iframe(html_vis, height=alto + 90)
+    else:
+        st.components.v1.html(html_vis, height=alto + 90)
+
+
+def cariograma_recortes(imagen, dets, celda=(120, 190), margen=0.12):
+    """Arma un cariograma: los recortes de cada cromosoma ordenados por par (1 a 22, X, Y).
+    El rótulo de un par autosómico va en rojo si no tiene exactamente 2 cromosomas."""
+    cw, ch = celda
+    pie = 26
+    filas_pares = [PARES_ORDEN[:12], PARES_ORDEN[12:]]
+    lienzo = np.full((len(filas_pares) * (ch + pie) + 8, 12 * cw, 3), 255, np.uint8)
+    alto_i, ancho_i = imagen.shape[:2]
+    for f, pares in enumerate(filas_pares):
+        for c, par in enumerate(pares):
+            ds = sorted((d for d in dets if d["clase_final"] == par), key=lambda d: -d["confianza"])
+            ox, oy = c * cw, f * (ch + pie) + 4
+            ancho_celda = (cw - 6) // max(len(ds), 2)
+            for i, d in enumerate(ds):
+                x1, y1, x2, y2 = d["caja"]
+                mx, my = int((x2 - x1) * margen), int((y2 - y1) * margen)
+                rec = imagen[max(0, y1 - my):min(alto_i, y2 + my), max(0, x1 - mx):min(ancho_i, x2 + mx)]
+                if rec.size == 0:
+                    continue
+                h, w = rec.shape[:2]
+                k = min(ancho_celda / w, (ch - 6) / h)
+                rec = cv2.resize(rec, (max(1, int(w * k)), max(1, int(h * k))), interpolation=cv2.INTER_AREA)
+                rh, rw = rec.shape[:2]
+                x0 = ox + 3 + i * ancho_celda + (ancho_celda - rw) // 2
+                y0 = oy + (ch - rh) // 2
+                lienzo[y0:y0 + rh, x0:x0 + rw] = rec
+            mal = par in PARES_AUTOSOMICOS and len(ds) != 2
+            cv2.putText(lienzo, f"{par} ({len(ds)})", (ox + 6, oy + ch + 18), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (0, 0, 200) if mal else (60, 60, 60), 1, cv2.LINE_AA)
+            cv2.line(lienzo, (ox, oy), (ox, oy + ch + pie - 4), (225, 225, 225), 1)
+    return lienzo
 
 
 def detecciones_normalizadas(crudas):
@@ -479,7 +619,7 @@ def mostrar_resultado(imagen, u):
         if fila["Descartar"]:
             descartes.append(d)
         else:
-            dets.append({**d, "clase_final": fila["Clase final"]})
+            dets.append({**d, "clase_final": fila["Clase final"], "n": int(fila["N°"])})
     cambios = [d for d in dets if d["clase_final"] != d["clase_modelo"]]
     conteo = contar([d["clase_final"] for d in dets])
     n_baja = sum(1 for d in dets if d["confianza"] < CONF_REVISION)
@@ -488,9 +628,30 @@ def mostrar_resultado(imagen, u):
 
     with c_img:
         st.write(f"El modelo detectó {len(originales)} cromosomas; tras la revisión quedan {len(dets)}.")
-        st.image(dibujada, channels="BGR",
-                 caption="Verde: confianza suficiente · Naranja: confianza baja, conviene revisar · "
-                         "Violeta: etiqueta corregida")
+        if u.get("segundos") is not None:
+            st.caption(f"Detección procesada en {u['segundos']:.1f} s")
+        with st.expander("Filtrar y resaltar en la imagen"):
+            f1, f2, f3 = st.columns(3)
+            sel = f1.multiselect("Mostrar solo estas clases", opciones, placeholder="Todas",
+                                 key=f"fil_cl_{u['run']}")
+            solo_dudosas = f2.checkbox(f"Solo confianza < {CONF_REVISION}", key=f"fil_du_{u['run']}")
+            por_etiqueta = {"Ninguno": None}
+            for d in dets:
+                por_etiqueta[f"N° {d['n']} · {d['clase_final']}"] = d
+            elegido = f3.selectbox("Resaltar y acercar", list(por_etiqueta), key=f"fil_re_{u['run']}")
+            st.caption("El filtro solo cambia lo que se ve; el conteo y lo que se guarda no cambian.")
+        foco_det = por_etiqueta.get(elegido)
+        visibles = [d for d in dets
+                    if (not sel or d["clase_final"] in sel)
+                    and (not solo_dudosas or d["confianza"] < CONF_REVISION)]
+        vista = dibujar(imagen, visibles, resaltar=foco_det["n"] if foco_det else None)
+        visor_zoom(imagen, vista, foco=foco_det["caja"] if foco_det else None)
+        st.caption("Cada color es una clase · ? = confianza baja, conviene revisar · "
+                   "* = etiqueta corregida")
+        with st.expander("Cariograma armado (recortes ordenados por par)"):
+            st.image(cariograma_recortes(imagen, dets), channels="BGR")
+            st.caption("Cada columna es un par con los cromosomas que quedaron con esa Clase final. "
+                       "El rótulo va en rojo si un par autosómico no tiene exactamente 2.")
     with c_sem:
         mostrar_semaforo(motivos)
 
@@ -567,6 +728,65 @@ def _resumen_deteccion(dets):
     return conteo, n_baja, pares
 
 
+@st.cache_resource
+def cargar_detector(ruta):
+    return DetectorCromosomas(ruta)
+
+
+def panel_comparar_modelos(imagen, archivo, conf, iou):
+    st.divider()
+    st.subheader("Comparar dos modelos")
+    explicar("cómo detecta cada modelo la misma imagen: cantidad, pares con cantidad distinta de 2, "
+             "confianza y tiempo.",
+             "elegí dos archivos de pesos (.pt). Mismos valores de conf e iou para los dos, así la "
+             "comparación es justa.")
+    pesos = sorted(str(p).replace("\\", "/") for p in Path(RUTA_PESOS).parent.glob("*.pt"))
+    if len(pesos) < 2:
+        st.info("Para comparar hacen falta al menos dos archivos .pt en la carpeta models/ "
+                "(por ejemplo, el YOLOv8s anterior junto al YOLOv8l actual).")
+        return
+    c1, c2 = st.columns(2)
+    ia = pesos.index(RUTA_PESOS) if RUTA_PESOS in pesos else 0
+    a = c1.selectbox("Modelo A", pesos, index=ia, key="comp_a")
+    b = c2.selectbox("Modelo B", pesos, index=0 if ia != 0 else 1, key="comp_b")
+    if a == b:
+        st.warning("Elegí dos modelos distintos.")
+        return
+    if st.button("Comparar modelos"):
+        res = []
+        for ruta in (a, b):
+            det = cargar_detector(ruta)
+            t0 = time.perf_counter()
+            dets = detecciones_normalizadas(det.detectar(imagen, conf=conf, iou=iou))
+            res.append({"ruta": ruta, "dets": dets, "seg": time.perf_counter() - t0})
+        st.session_state.lab_comp = {"archivo": archivo, "a": a, "b": b, "conf": conf, "iou": iou,
+                                     "res": res}
+    comp = st.session_state.get("lab_comp")
+    if not comp or comp["archivo"] != archivo or (comp["a"], comp["b"]) != (a, b):
+        return
+    filas, imgs = [], []
+    for r in comp["res"]:
+        conteo, n_baja, pares = _resumen_deteccion(r["dets"])
+        conf_prom = sum(d["confianza"] for d in r["dets"]) / len(r["dets"]) if r["dets"] else 0
+        filas.append({"Modelo": Path(r["ruta"]).name, "Cromosomas detectados": len(r["dets"]),
+                      "Pares con cantidad distinta de 2": pares,
+                      f"Detecciones con confianza < {CONF_REVISION}": n_baja,
+                      "Confianza promedio": round(conf_prom, 3), "Tiempo (s)": round(r["seg"], 2)})
+        imgs.append(dibujar(imagen, [{**d, "clase_final": d["clase_modelo"]} for d in r["dets"]]))
+    st.caption(f"Resultados con conf={comp['conf']:.2f} e iou={comp['iou']:.2f}.")
+    st.dataframe(pd.DataFrame(filas), hide_index=True)
+    visor_zoom(imgs[0], imgs[1], titulos=(Path(a).name, Path(b).name))
+    cA = contar([d["clase_modelo"] for d in comp["res"][0]["dets"]])
+    cB = contar([d["clase_modelo"] for d in comp["res"][1]["dets"]])
+    difs = [{"Clase": p, Path(a).name: cA.get(p, 0), Path(b).name: cB.get(p, 0)}
+            for p in PARES_ORDEN if cA.get(p, 0) != cB.get(p, 0)]
+    if difs:
+        st.markdown("**Clases donde los modelos no coinciden**")
+        st.dataframe(pd.DataFrame(difs), hide_index=True)
+    else:
+        st.success("Los dos modelos dan el mismo conteo en todas las clases.")
+
+
 def panel_laboratorio():
     st.subheader("Laboratorio de parámetros")
     explicar("cómo cambia lo que detecta el modelo al variar la confianza mínima (conf) y el "
@@ -629,6 +849,8 @@ def panel_laboratorio():
         st.caption("La línea gris marca 46, el total esperado en una célula sin alteraciones "
                    "numéricas. Elegir el IoU que más se acerque sin generar duplicados.")
 
+    panel_comparar_modelos(imagen, subida.name, conf, iou)
+
 
 # ---------- Sobre el modelo ----------
 @st.cache_data(ttl=60)
@@ -636,27 +858,9 @@ def _revision_cacheada():
     return cargar_revision()
 
 
-def pestana_modelo():
-    st.subheader("Sobre el modelo")
-    st.markdown("El detector es un **YOLOv8s** que partió de pesos preentrenados con COCO y se "
-                "reentrenó (*fine-tuning*) con imágenes de cariotipos para reconocer los 24 tipos de "
-                "cromosoma. Lo que sigue describe cómo fue entrenado y qué tan bien funciona.")
-    st.table(pd.DataFrame({"Dato": list(INFO_MODELO), "Valor": list(INFO_MODELO.values())})
-             .set_index("Dato"))
-
-    ruta_csv = RUTA_INFO / "results.csv"
-    if ruta_csv.exists():
-        r = pd.read_csv(ruta_csv)
-        r.columns = [c.strip() for c in r.columns]
-        mejor = r.loc[r["metrics/mAP50-95(B)"].idxmax()]
-        st.markdown(f"#### Resultados en validación (mejor época: {int(mejor['epoch'])})")
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Precisión", f"{mejor['metrics/precision(B)']:.1%}")
-        k2.metric("Recall", f"{mejor['metrics/recall(B)']:.1%}")
-        k3.metric("mAP@50", f"{mejor['metrics/mAP50(B)']:.1%}")
-        k4.metric("mAP@50-95", f"{mejor['metrics/mAP50-95(B)']:.1%}")
-        with st.expander("¿Qué significa cada métrica?"):
-            st.markdown("""
+def _ayuda_metricas():
+    with st.expander("¿Qué significa cada métrica?"):
+        st.markdown("""
 - **Precisión:** de todo lo que el modelo detectó, qué proporción era correcto.
 - **Recall:** de todos los cromosomas que había, qué proporción encontró.
 - **mAP@50:** resume precisión y recall para todas las clases; cuenta una detección como acertada si
@@ -665,45 +869,171 @@ def pestana_modelo():
 - Son métricas **por cromosoma**, sobre imágenes de validación del mismo conjunto de datos. Un
   cariotipo exige acertar los 46 a la vez, así que el desempeño por imagen completa es menor.
 """)
-        met = r[["epoch", "metrics/precision(B)", "metrics/recall(B)",
-                 "metrics/mAP50(B)", "metrics/mAP50-95(B)"]].rename(columns={
-            "metrics/precision(B)": "Precisión", "metrics/recall(B)": "Recall",
-            "metrics/mAP50(B)": "mAP@50", "metrics/mAP50-95(B)": "mAP@50-95"})
-        largo = met.melt("epoch", var_name="Métrica", value_name="Valor")
-        nombres = ["Precisión", "Recall", "mAP@50", "mAP@50-95"]
-        curva = alt.Chart(largo).mark_line().encode(
-            x=alt.X("epoch:Q", title="Época"),
-            y=alt.Y("Valor:Q", title="Valor", scale=alt.Scale(domain=[0, 1])),
-            color=alt.Color("Métrica:N", scale=alt.Scale(
-                domain=nombres, range=[AZUL, "#8E24AA", "#26A69A", "#4D4D4D"]),
+
+
+INFO_V8S = {
+    "Modelo base": "YOLOv8s (preentrenado en COCO)",
+    "Tarea": "Detección de objetos, 24 clases (A1…G22, X, Y)",
+    "Épocas": "60",
+    "Tamaño de imagen": "640 px",
+    "Batch": "16",
+    "Optimizador": "AdamW",
+    "Fecha de entrenamiento": "3 de octubre de 2026",
+    "Librería": "Ultralytics 8.4.172",
+}
+# Cada modelo con su ficha y su registro de entrenamiento (carpeta modelo_info/)
+MODELOS_INFO = {
+    "YOLOv8l (actual)": {"info": INFO_MODELO, "csv": "results_yolov8l.csv", "color": "#1565C0"},
+    "YOLOv8s (anterior)": {"info": INFO_V8S, "csv": "results_yolov8s.csv", "color": "#EF6C00"},
+}
+
+
+def _leer_results(nombre_csv):
+    """Lee un results.csv de modelo_info/; devuelve None si no está."""
+    ruta = RUTA_INFO / nombre_csv
+    if not ruta.exists():
+        return None
+    r = pd.read_csv(ruta)
+    r.columns = [c.strip() for c in r.columns]
+    return r
+
+
+def _curvas_modelo(r):
+    """Resultados en validación y curvas de un entrenamiento (r = results.csv)."""
+    mejor = r.loc[r["metrics/mAP50-95(B)"].idxmax()]
+    st.markdown(f"#### Resultados en validación (mejor época: {int(mejor['epoch'])})")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Precisión", f"{mejor['metrics/precision(B)']:.1%}")
+    k2.metric("Recall", f"{mejor['metrics/recall(B)']:.1%}")
+    k3.metric("mAP@50", f"{mejor['metrics/mAP50(B)']:.1%}")
+    k4.metric("mAP@50-95", f"{mejor['metrics/mAP50-95(B)']:.1%}")
+    _ayuda_metricas()
+    met = r[["epoch", "metrics/precision(B)", "metrics/recall(B)",
+             "metrics/mAP50(B)", "metrics/mAP50-95(B)"]].rename(columns={
+        "metrics/precision(B)": "Precisión", "metrics/recall(B)": "Recall",
+        "metrics/mAP50(B)": "mAP@50", "metrics/mAP50-95(B)": "mAP@50-95"})
+    largo = met.melt("epoch", var_name="Métrica", value_name="Valor")
+    nombres = ["Precisión", "Recall", "mAP@50", "mAP@50-95"]
+    curva = alt.Chart(largo).mark_line().encode(
+        x=alt.X("epoch:Q", title="Época"),
+        y=alt.Y("Valor:Q", title="Valor", scale=alt.Scale(domain=[0, 1])),
+        color=alt.Color("Métrica:N", scale=alt.Scale(
+            domain=nombres, range=[AZUL, "#8E24AA", "#26A69A", "#4D4D4D"]),
+            legend=alt.Legend(orient="bottom", title=None)),
+        tooltip=["epoch", "Métrica", alt.Tooltip("Valor:Q", format=".3f")])
+    marca = alt.Chart(pd.DataFrame({"x": [int(mejor["epoch"])]})).mark_rule(
+        color=COLORES[3], strokeDash=[6, 4]).encode(x="x:Q")
+    g1, g2 = st.columns(2)
+    with g1:
+        st.markdown("**Métricas por época**")
+        explicar("cómo mejoró el modelo durante el entrenamiento.",
+                 "las curvas suben y se estabilizan; la línea gris es la mejor época, la "
+                 "que se guardó como pesos finales.")
+        st.altair_chart((curva + marca).properties(width="container", height=280))
+    perdida = r[["epoch", "train/box_loss", "val/box_loss"]].rename(columns={
+        "train/box_loss": "Entrenamiento", "val/box_loss": "Validación"}).melt(
+        "epoch", var_name="Conjunto", value_name="Pérdida")
+    with g2:
+        st.markdown("**Error de las cajas por época**")
+        explicar("qué tan bien ubica las cajas (menos es mejor).",
+                 "si la curva de validación se separa hacia arriba de la de entrenamiento, hay "
+                 "sobreajuste; si se mantienen juntas, el modelo generaliza.")
+        st.altair_chart(alt.Chart(perdida).mark_line().encode(
+            x=alt.X("epoch:Q", title="Época"), y=alt.Y("Pérdida:Q", scale=alt.Scale(zero=False)),
+            color=alt.Color("Conjunto:N", scale=alt.Scale(
+                domain=["Entrenamiento", "Validación"], range=[AZUL, "#4D4D4D"]),
                 legend=alt.Legend(orient="bottom", title=None)),
-            tooltip=["epoch", "Métrica", alt.Tooltip("Valor:Q", format=".3f")])
-        marca = alt.Chart(pd.DataFrame({"x": [int(mejor["epoch"])]})).mark_rule(
-            color=COLORES[3], strokeDash=[6, 4]).encode(x="x:Q")
-        g1, g2 = st.columns(2)
-        with g1:
-            st.markdown("**Métricas por época**")
-            explicar("cómo mejoró el modelo durante el entrenamiento.",
-                     "las curvas suben y se estabilizan; la línea gris es la mejor época, la "
-                     "que se guardó como pesos finales.")
-            st.altair_chart((curva + marca).properties(width="container", height=280))
-        perdida = r[["epoch", "train/box_loss", "val/box_loss"]].rename(columns={
-            "train/box_loss": "Entrenamiento", "val/box_loss": "Validación"}).melt(
-            "epoch", var_name="Conjunto", value_name="Pérdida")
-        with g2:
-            st.markdown("**Error de las cajas por época**")
-            explicar("qué tan bien ubica las cajas (menos es mejor).",
-                     "si la curva de validación se separa hacia arriba de la de entrenamiento, hay "
-                     "sobreajuste; acá se mantienen juntas.")
-            st.altair_chart(alt.Chart(perdida).mark_line().encode(
-                x=alt.X("epoch:Q", title="Época"), y=alt.Y("Pérdida:Q", scale=alt.Scale(zero=False)),
-                color=alt.Color("Conjunto:N", scale=alt.Scale(
-                    domain=["Entrenamiento", "Validación"], range=[AZUL, "#4D4D4D"]),
-                    legend=alt.Legend(orient="bottom", title=None)),
-                tooltip=["epoch", "Conjunto", alt.Tooltip("Pérdida:Q", format=".3f")]
-            ).properties(width="container", height=280))
+            tooltip=["epoch", "Conjunto", alt.Tooltip("Pérdida:Q", format=".3f")]
+        ).properties(width="container", height=280))
+
+
+def _comparar_modelos_info(rl, rs):
+    """Compara los dos entrenamientos: ficha, métricas de la mejor época y curvas superpuestas."""
+    nl, ns = "YOLOv8l (actual)", "YOLOv8s (anterior)"
+    st.markdown("#### Fichas de los dos modelos")
+    ficha = pd.DataFrame({"Dato": list(INFO_MODELO),
+                          ns: [INFO_V8S[k] for k in INFO_MODELO],
+                          nl: [INFO_MODELO[k] for k in INFO_MODELO]}).set_index("Dato")
+    st.table(ficha)
+    if rl is None or rs is None:
+        faltan = [MODELOS_INFO[n]["csv"] for n, r in ((nl, rl), (ns, rs)) if r is None]
+        st.info("Para comparar las métricas faltan en modelo_info/: " + ", ".join(faltan))
+        return
+    ml = rl.loc[rl["metrics/mAP50-95(B)"].idxmax()]
+    ms = rs.loc[rs["metrics/mAP50-95(B)"].idxmax()]
+    claves = [("Precisión", "metrics/precision(B)"), ("Recall", "metrics/recall(B)"),
+              ("mAP@50", "metrics/mAP50(B)"), ("mAP@50-95", "metrics/mAP50-95(B)")]
+    filas = [{"Métrica": n, ns: f"{ms[c]:.1%}", nl: f"{ml[c]:.1%}",
+              "Diferencia (puntos)": f"{(ml[c] - ms[c]) * 100:+.1f}"} for n, c in claves]
+    filas.append({"Métrica": "Mejor época", ns: f"{int(ms['epoch'])} de {len(rs)}",
+                  nl: f"{int(ml['epoch'])} de {len(rl)}", "Diferencia (puntos)": ""})
+    if "time" in rl.columns and "time" in rs.columns:
+        filas.append({"Métrica": "Duración del entrenamiento",
+                      ns: f"{rs['time'].iloc[-1] / 3600:.1f} h", nl: f"{rl['time'].iloc[-1] / 3600:.1f} h",
+                      "Diferencia (puntos)": ""})
+    st.markdown("#### Resultados en validación (mejor época de cada uno)")
+    st.table(pd.DataFrame(filas).set_index("Métrica"))
+    st.caption("Son métricas por cromosoma sobre las imágenes de validación. La comparación es justa "
+               "solo si los dos modelos usaron las mismas imágenes de validación. Para medir imágenes "
+               "completas (46 cromosomas bien clasificados) se usa la evaluación sobre el conjunto TEST.")
+    _ayuda_metricas()
+    larga = pd.concat([
+        rs.assign(Modelo=ns), rl.assign(Modelo=nl)])[
+        ["epoch", "Modelo", "metrics/mAP50-95(B)", "val/box_loss"]]
+    dom = [nl, ns]
+    rng = [MODELOS_INFO[nl]["color"], MODELOS_INFO[ns]["color"]]
+    g1, g2 = st.columns(2)
+    with g1:
+        st.markdown("**mAP@50-95 por época**")
+        explicar("la métrica más exigente, época por época, para los dos modelos.",
+                 "la curva más alta y estable es la del modelo que mejor ubica los cromosomas.")
+        st.altair_chart(alt.Chart(larga).mark_line().encode(
+            x=alt.X("epoch:Q", title="Época"),
+            y=alt.Y("metrics/mAP50-95(B):Q", title="mAP@50-95", scale=alt.Scale(zero=False)),
+            color=alt.Color("Modelo:N", scale=alt.Scale(domain=dom, range=rng),
+                            legend=alt.Legend(orient="bottom", title=None)),
+            tooltip=["Modelo", "epoch", alt.Tooltip("metrics/mAP50-95(B):Q", format=".3f")]
+        ).properties(width="container", height=280))
+    with g2:
+        st.markdown("**Error de las cajas en validación**")
+        explicar("qué tan bien ubica las cajas cada modelo (menos es mejor).",
+                 "una curva más baja significa cajas mejor ajustadas.")
+        st.altair_chart(alt.Chart(larga).mark_line().encode(
+            x=alt.X("epoch:Q", title="Época"),
+            y=alt.Y("val/box_loss:Q", title="Pérdida de cajas", scale=alt.Scale(zero=False)),
+            color=alt.Color("Modelo:N", scale=alt.Scale(domain=dom, range=rng),
+                            legend=alt.Legend(orient="bottom", title=None)),
+            tooltip=["Modelo", "epoch", alt.Tooltip("val/box_loss:Q", format=".3f")]
+        ).properties(width="container", height=280))
+
+
+def pestana_modelo():
+    st.subheader("Sobre el modelo")
+    vista = st.radio("Qué ver", ["YOLOv8l (actual)", "YOLOv8s (anterior)", "Comparar los dos"],
+                     horizontal=True, key="vista_modelo", label_visibility="collapsed")
+    st.markdown("Los detectores son modelos **YOLOv8** que partieron de pesos preentrenados con COCO "
+                "y se reentrenaron (*fine-tuning*) con imágenes de cariotipos para reconocer los 24 "
+                "tipos de cromosoma. Lo que sigue describe cómo fueron entrenados y qué tan bien funcionan.")
+    rl = _leer_results(MODELOS_INFO["YOLOv8l (actual)"]["csv"])
+    rs = _leer_results(MODELOS_INFO["YOLOv8s (anterior)"]["csv"])
+    if vista == "Comparar los dos":
+        _comparar_modelos_info(rl, rs)
     else:
-        st.info("Falta el archivo modelo_info/results.csv para mostrar las métricas.")
+        st.table(pd.DataFrame({"Dato": list(MODELOS_INFO[vista]["info"]),
+                               "Valor": list(MODELOS_INFO[vista]["info"].values())}).set_index("Dato"))
+        r = rl if vista.startswith("YOLOv8l") else rs
+        if r is not None:
+            _curvas_modelo(r)
+        elif vista.startswith("YOLOv8l"):
+            st.markdown("#### Resultados en validación")
+            k1, k2, k3, k4 = st.columns(4)
+            for col, (nom, val) in zip((k1, k2, k3, k4), METRICAS_FINALES.items()):
+                col.metric(nom, f"{val:.1%}")
+            _ayuda_metricas()
+            st.info(f"Las curvas por época se muestran cuando se agrega modelo_info/"
+                    f"{MODELOS_INFO[vista]['csv']}.")
+        else:
+            st.info(f"Falta el archivo modelo_info/{MODELOS_INFO[vista]['csv']} para mostrar las métricas.")
 
     st.markdown("#### Errores corregidos por profesionales")
     rev = _revision_cacheada()
@@ -781,12 +1111,15 @@ with tab1:
         imagen = cv2.imdecode(bytes_imagen, cv2.IMREAD_COLOR)
 
         if st.button("Detectar cromosomas"):
+            t0 = time.perf_counter()
             dets = detecciones_normalizadas(
                 modelo.detectar(imagen, conf=CONF_UMBRAL, iou=IOU_UMBRAL))
+            segundos = time.perf_counter() - t0
             st.session_state.n_runs += 1
             st.session_state.ultimo_resultado = {
                 "run": st.session_state.n_runs, "archivo": archivo.name,
-                "detecciones": dets, "guardado_id": None, "bytes": bytes_imagen.tobytes()}
+                "detecciones": dets, "guardado_id": None, "bytes": bytes_imagen.tobytes(),
+                "segundos": segundos}
             conteo0 = contar([d["clase_modelo"] for d in dets])
             motivos0 = motivos_revision(
                 len(dets), conteo0, sum(1 for d in dets if d["confianza"] < CONF_REVISION))

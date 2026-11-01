@@ -36,3 +36,6 @@ assets/imagenes_analizadas/
 
 # Presentación
 presentacion/
+
+#Modelo viejo
+models/*_v8s.pt
