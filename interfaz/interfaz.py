@@ -44,7 +44,6 @@ class InterfazCromosomas:
         self._recorte_tk = None
 
         # Estado para zoom/pan sincronizados
-        # Datos de imagen original
         self.img_orig_pil = None  # PIL Image original (RGB)
         self.img_anal_cv = None  # OpenCV anotada (BGR)
 
@@ -66,7 +65,6 @@ class InterfazCromosomas:
         self._verificar_modelo_al_inicio()
 
     def _crear_interfaz(self):
-        """Construye todos los widgets de la interfaz."""
         # Barra de estado global, debajo de las pestañas
         self.var_estado = tk.StringVar(value="Listo. Seleccione una imagen para comenzar.")
         self.lbl_estado = ttk.Label(self.root, textvariable=self.var_estado,
@@ -88,27 +86,21 @@ class InterfazCromosomas:
         frame_controles = ttk.Frame(main_frame)
         frame_controles.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Label(frame_controles, text="CARIODETECTOR",
-                  font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT, padx=(0, 20))
+        ttk.Label(frame_controles, text="CARIODETECTOR", font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT, padx=(0, 20))
 
-        self.btn_seleccionar = ttk.Button(frame_controles, text="Seleccionar imagen",
-                                           command=self._seleccionar_imagen, width=18)
+        self.btn_seleccionar = ttk.Button(frame_controles, text="Seleccionar imagen",command=self._seleccionar_imagen, width=18)
         self.btn_seleccionar.pack(side=tk.LEFT, padx=5)
 
-        self.btn_analizar = ttk.Button(frame_controles, text="Analizar",
-                                        command=self._analizar, width=15, state=tk.DISABLED)
+        self.btn_analizar = ttk.Button(frame_controles, text="Analizar",command=self._analizar, width=15, state=tk.DISABLED)
         self.btn_analizar.pack(side=tk.LEFT, padx=5)
 
-        self.btn_guardar = ttk.Button(frame_controles, text="Guardar análisis",
-                                       command=self._guardar_analisis, width=15, state=tk.DISABLED)
+        self.btn_guardar = ttk.Button(frame_controles, text="Guardar análisis",command=self._guardar_analisis, width=15, state=tk.DISABLED)
         self.btn_guardar.pack(side=tk.LEFT, padx=5)
 
-        self.btn_historial = ttk.Button(frame_controles, text="Historial",
-                                         command=self._mostrar_historial, width=12)
+        self.btn_historial = ttk.Button(frame_controles, text="Historial",command=self._mostrar_historial, width=12)
         self.btn_historial.pack(side=tk.LEFT, padx=5)
 
-        self.btn_reset_zoom = ttk.Button(frame_controles, text="Ajustar a ventana",
-                                         command=self._reset_zoom, width=16)
+        self.btn_reset_zoom = ttk.Button(frame_controles, text="Ajustar a ventana",command=self._reset_zoom, width=16)
         self.btn_reset_zoom.pack(side=tk.LEFT, padx=5)
 
         # ===== ÁREA DE IMÁGENES Y RESULTADOS =====
@@ -127,8 +119,7 @@ class InterfazCromosomas:
         frame_orig = ttk.LabelFrame(frame_imagenes, text="Imagen original", padding=5)
         frame_orig.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
 
-        self.canvas_original = tk.Canvas(frame_orig, bg="#f0f0f0", highlightthickness=1,
-                                          highlightbackground="#ccc")
+        self.canvas_original = tk.Canvas(frame_orig, bg="#f0f0f0", highlightthickness=1,highlightbackground="#ccc")
         self.canvas_original.pack(fill=tk.BOTH, expand=True)
 
         # Imagen analizada
