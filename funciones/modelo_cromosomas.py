@@ -1,16 +1,6 @@
 from pathlib import Path
 from ultralytics import YOLO
 
-NOMBRES_CLASES = [
-    "cromosoma 1", "cromosoma 2", "cromosoma 3", "cromosoma 4",
-    "cromosoma 5", "cromosoma 6", "cromosoma 7", "cromosoma 8",
-    "cromosoma 9", "cromosoma 10", "cromosoma 11", "cromosoma 12",
-    "cromosoma 13", "cromosoma 14", "cromosoma 15", "cromosoma 16",
-    "cromosoma 17", "cromosoma 18", "cromosoma 19", "cromosoma 20",
-    "cromosoma 21", "cromosoma 22", "cromosoma X", "cromosoma Y"
-]
-
-
 class DetectorCromosomas:
 
     def __init__(self, ruta_modelo=None):
@@ -88,9 +78,5 @@ class DetectorCromosomas:
                 return nombres_modelo[clase_id]
             elif isinstance(nombres_modelo, list) and clase_id < len(nombres_modelo):
                 return nombres_modelo[clase_id]
-
-        # Fallback a lista por defecto
-        if 0 <= clase_id < len(NOMBRES_CLASES):
-            return NOMBRES_CLASES[clase_id]
 
         return f"clase_desconocida_{clase_id}"

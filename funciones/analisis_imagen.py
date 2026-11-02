@@ -28,7 +28,7 @@ class AnalizadorImagen:
         self.ruta_imagen = ruta
         return self.imagen_original
 
-    def analizar(self, conf_threshold=0.25):
+    def analizar(self, conf_threshold=0.35):
 
         if self.imagen_original is None:
             raise ValueError("No hay imagen cargada. Use cargar_imagen() primero.")

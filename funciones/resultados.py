@@ -1,6 +1,5 @@
 from collections import Counter
 
-# Clases que produce el modelo
 CLASES_CROMOSOMA = (
     ["A1", "A2", "A3", "B4", "B5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "D13", "D14", "D15", "E16", "E17", "E18", "F19", "F20", "G21", "G22", "X", "Y"]
 )
@@ -31,21 +30,14 @@ def normalizar_clase(nombre):
 
     return texto
 
-
 def preparar_detecciones(detecciones):
-    """
-    Normaliza las clases de las detecciones y conserva la clase detectada.
 
-    `nombre_clase` pasa a ser la clase efectiva (la que se puede corregir) y
-    `clase_original` guarda la salida original del modelo.
-    """
     for det in detecciones:
         clase = normalizar_clase(det.get("nombre_clase"))
         det.setdefault("clase_original", clase)
         det["nombre_clase"] = clase
 
     return detecciones
-
 
 def _numero_cromosoma(codigo):
 
@@ -61,7 +53,6 @@ def _numero_cromosoma(codigo):
 
     return None
 
-
 def clave_orden_clase(nombre):
 
     numero = _numero_cromosoma(nombre)
@@ -74,7 +65,6 @@ def clave_orden_clase(nombre):
         return (1, 24)
 
     return (0, int(numero))
-
 
 def sugerir_cariotipo(asignaciones):
 
@@ -115,7 +105,6 @@ def sugerir_cariotipo(asignaciones):
 
     return cariotipo
 
-
 def detecciones_a_tabla(detecciones):
 
     filas = []
@@ -134,7 +123,6 @@ def detecciones_a_tabla(detecciones):
         })
 
     return filas
-
 
 def recortar_deteccion(imagen, bbox, margen=0.15):
 
@@ -207,12 +195,8 @@ def formatear_resumen_texto(resumen):
     lineas.append("-" * 40)
     return "\n".join(lineas)
 
-
 def detecciones_para_bd(detecciones, ancho_imagen, alto_imagen):
-    """
-    Convierte las detecciones del modelo al formato que espera la tabla
-    `cromosomas`.
-    """
+
     filas = []
 
     for det in detecciones:
@@ -239,7 +223,6 @@ def detecciones_para_bd(detecciones, ancho_imagen, alto_imagen):
         })
 
     return filas
-
 
 def obtener_estadisticas_globales(detecciones):
     if not detecciones:
