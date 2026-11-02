@@ -1238,13 +1238,13 @@ with tab4:
                  "casilleros rojos o naranjas indica un par que el modelo confunde seguido.")
         st.altair_chart(mapa_calor(m))
 
-        # 3 y 4. Dona + histograma
+        # 3 y 4. alerta + histograma
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("3 · Imágenes con y sin alertas")
             explicar("cuántas imágenes salieron sin alertas y cuántas con algún par de más o de menos.",
                      "cada imagen cuenta una sola vez; X e Y no se incluyen.")
-            st.altair_chart(dona_alertas(m))
+            st.altair_chart(img_alertas(m))
         with c2:
             st.subheader("4 · Confianza del modelo")
             explicar("qué tan seguro estuvo el modelo en cada detección.",
