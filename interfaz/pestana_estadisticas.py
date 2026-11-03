@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from decimal import Decimal
 
-from utils.db_config import obtener_conexion
+from nucleo.db import obtener_conexion
 
 
 def _formatear_valor(valor):
@@ -23,6 +23,7 @@ class PestanaEstadisticas(ttk.Frame):
         "cromosomas",
         "clasificaciones",
         "resultados",
+        "correcciones",
         "vista_resumen_estudios",
         "vista_estadisticas_globales",
     )

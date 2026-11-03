@@ -65,7 +65,7 @@ pip install -r requirements.txt
 ## Archivos y carpetas del proyecto
 
 ```text
-main.py                         Punto de entrada de la aplicación de escritorio
+main.py                         Punto de entrada: abre Tkinter y lanza el dashboard
 requirements.txt                Dependencias de Python del proyecto
 README.MD                       Este archivo
 
@@ -73,19 +73,37 @@ assets/
 ├── imagenes_prueba/            Imágenes de ejemplo para analizar
 └── imagenes_analizadas/        Imágenes originales y resultados generados
 
-funciones/                      Lógica de análisis y presentación
-├── analisis_imagen.py          Procesamiento y análisis de imágenes
-├── modelo_cromosomas.py        Carga del modelo YOLO y detecciones
-└── resultados.py               Gestión y presentación de resultados
+nucleo/                         Lógica compartida por Tkinter y el dashboard
+├── constantes.py               Clases, umbrales, colores y rutas comunes
+├── modelo.py                   Carga única del modelo YOLO y detección
+├── detecciones.py              Formato canónico, conteos, revisión y cariotipo
+├── dibujo.py                   Dibujo de cajas, recortes y cariograma
+├── db.py                       Conexión y operaciones de MySQL
+├── informe.py                  Informe HTML y conversión de imágenes
+├── analisis_imagen.py          Servicio de carga y análisis de una imagen
+└── modelo_info.py              Fichas y registros de entrenamiento
+
+graficos/                       Gráficos Altair del dashboard, sin Streamlit
+├── tema.py                     Tema, escalas y ejes comunes
+├── cariotipo.py                Cariograma, mapa de calor, alertas y confianza
+├── laboratorio.py              Curva de barrido de IoU
+├── modelo.py                   Curvas y comparación de entrenamientos
+└── revision.py                 Confusiones corregidas por profesionales
+
+funciones/                      Envoltorios de compatibilidad (temporal)
+├── analisis_imagen.py          Reexporta nucleo.analisis_imagen
+├── modelo_cromosomas.py        Reexporta nucleo.modelo
+└── resultados.py               Reexporta nucleo.detecciones y nucleo.dibujo
 
 interfaz/                       Interfaz gráfica de escritorio (Tkinter)
 ├── interfaz.py                 Ventana principal, historial y revisión
 └── pestana_estadisticas.py     Tablas e indicadores estadísticos
 
 dashboard/                      Dashboard web en Streamlit
-├── app.py                      Aplicación web
-├── db.py                       Consultas y conexión a datos
-├── modelo.py                   Análisis de imágenes desde el dashboard
+├── app.py                      Página web (solo interfaz)
+├── componentes.py              Visor con zoom y avisos reutilizables
+├── lanzador.py                 Arranque y cierre automático de Streamlit
+├── modelo_info/                Registros CSV de los entrenamientos
 └── requirements.txt            Dependencias específicas del dashboard
 
 models/                         Modelo de detección YOLO
@@ -93,7 +111,7 @@ models/                         Modelo de detección YOLO
 └── README.MD                   Información sobre el modelo y sus clases
 
 utils/
-└── db_config.py                Parámetros de conexión a MySQL
+└── db_config.py                Envoltorio de compatibilidad para nucleo.db
 
 scripts_sql/
 └── crear_bd.sql                Creación y configuración de la base `cariotipos`
@@ -115,11 +133,13 @@ scripts_sql/
 
 3. El script crea la base de datos `cariotipos`, sus tablas y los objetos SQL
    necesarios para guardar y consultar estudios.
-4. Revisa y ajusta las credenciales de MySQL en `utils/db_config.py` para que
+4. Revisa y ajusta las credenciales de MySQL en `nucleo/db.py` para que
    coincidan con tu instalación local. El archivo contiene valores de ejemplo.
+   `utils/db_config.py` se mantiene como envoltorio de compatibilidad.
 
-El dashboard puede usar esta misma configuración. También permite definir las
-variables de entorno `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` y `DB_NAME`.
+El dashboard usa la misma configuración y la misma lógica de guardado que la
+interfaz Tkinter. También permite definir las variables de entorno `DB_HOST`,
+`DB_PORT`, `DB_USER`, `DB_PASSWORD` y `DB_NAME`.
 
 ---
 
@@ -139,11 +159,11 @@ imágenes. Consulta [models/README.MD](models/README.MD) para más información.
 
 ## Cómo ejecutar el proyecto
 
-### Aplicación de escritorio
+### Aplicación de escritorio + dashboard
 
 1. Instala Python y las dependencias.
 2. Configura MySQL y ejecuta `scripts_sql/crear_bd.sql`.
-3. Revisa las credenciales en `utils/db_config.py`.
+3. Revisa las credenciales en `nucleo/db.py`.
 4. Confirma que el modelo esté en `models/best_24_chromosomes.pt`.
 5. Desde la carpeta raíz, ejecuta:
 
@@ -151,7 +171,13 @@ imágenes. Consulta [models/README.MD](models/README.MD) para más información.
    python main.py
    ```
 
-### Dashboard web
+   Esto abre la interfaz Tkinter y, automáticamente, inicia el dashboard en un
+   puerto local libre y lo abre en el navegador. Al cerrar la ventana de
+   Tkinter también se detiene el dashboard.
+
+### Dashboard web por separado
+
+El dashboard también puede ejecutarse solo, por ejemplo durante el desarrollo:
 
 1. Instala sus dependencias desde la carpeta raíz, si todavía no lo hiciste:
 
@@ -194,8 +220,8 @@ guardar análisis y descargar informes HTML y detecciones CSV.
 - El modelo trabaja con las clases de cromosomas 1–22, X e Y.
 - Si no hay conexión con la base de datos, el dashboard muestra datos de
   demostración. Estos datos no son resultados reales.
-- La confianza mínima y el umbral de solapamiento del dashboard están definidos
-  en `dashboard/app.py`.
+- La confianza mínima, el IoU y el umbral de revisión están definidos en
+  `nucleo/constantes.py` y los comparten ambas interfaces.
 - Todo resultado debe ser revisado por un profesional.
 
 ---
@@ -210,7 +236,7 @@ guardar análisis y descargar informes HTML y detecciones CSV.
 ### 2. No se puede conectar con MySQL
 
 - Verifica que MySQL Server esté ejecutándose.
-- Confirma usuario, contraseña, host y puerto en `utils/db_config.py` o en las
+- Confirma usuario, contraseña, host y puerto en `nucleo/db.py` o en las
   variables de entorno del dashboard.
 - Comprueba que se haya ejecutado `scripts_sql/crear_bd.sql`.
 

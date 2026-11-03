@@ -18,23 +18,11 @@ models/best_24_chromosomes.pt
 
 ## Clases
 
-El modelo debe tener exactamente estas 24 clases y en este orden:
-
-| ID | Clase |
-|---:|---|
-| 0 | cromosoma 1 |
-| 1 | cromosoma 2 |
-| 2 | cromosoma 3 |
-| ... | ... |
-| 21 | cromosoma 22 |
-| 22 | cromosoma X |
-| 23 | cromosoma Y |
-
-Si el modelo utiliza un orden diferente, es necesario actualizar `NOMBRES_CLASES` en:
-
-```text
-funciones/modelo_cromosomas.py
-```
+El modelo tiene 24 clases con nombres de grupo y número de par (por ejemplo
+`A1`, `C7`, `G22`, `X`, `Y`). El orden interno del archivo de pesos es
+alfabético, así que no coincide con el orden 1–22, X, Y; por eso el detector
+usa los nombres que devuelve el propio modelo. La lista de referencia está en
+`nucleo/constantes.py` (`CLASES_MODELO`) y la carga en `nucleo/modelo.py`.
 
 ## Verificar el modelo
 

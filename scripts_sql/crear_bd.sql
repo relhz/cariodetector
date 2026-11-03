@@ -49,6 +49,22 @@ CREATE TABLE IF NOT EXISTS `resultados` (
   CONSTRAINT `fk_resultados_estudios` FOREIGN KEY (`id_estudio`) REFERENCES `estudios` (`id_estudio`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE IF NOT EXISTS `correcciones` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `id_estudio` int NOT NULL,
+  `id_cromosoma` int DEFAULT NULL,
+  `clase_modelo` varchar(50) NOT NULL,
+  `clase_final` varchar(50) DEFAULT NULL,
+  `confianza` decimal(5,4) NOT NULL,
+  `tipo` varchar(10) NOT NULL,
+  `fecha` datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `id_estudio` (`id_estudio`),
+  KEY `id_cromosoma` (`id_cromosoma`),
+  CONSTRAINT `fk_correcciones_estudios` FOREIGN KEY (`id_estudio`)
+    REFERENCES `estudios` (`id_estudio`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- UDFs para indicadores estadísticos

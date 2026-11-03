@@ -1,25 +1,33 @@
-import json
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
+
 import cv2
 from PIL import Image, ImageTk
 
-from funciones.analisis_imagen import AnalizadorImagen
-from funciones.resultados import (
-    CLASES_CROMOSOMA,
+from nucleo.analisis_imagen import AnalizadorImagen
+from nucleo.constantes import CLASES_CROMOSOMA, CONF_REVISION, CONF_UMBRAL, IOU_UMBRAL
+from nucleo.db import (
+    cargar_estudio,
+    estadisticas_globales,
+    guardar_analisis,
+    guardar_revision,
+    historial_estudios,
+    probar_conexion,
+)
+from nucleo.detecciones import (
+    contar,
     detecciones_a_tabla,
     formatear_resumen_texto,
-    detecciones_para_bd,
     generar_resumen_detallado,
+    motivos_revision,
     normalizar_clase,
     obtener_estadisticas_globales,
     preparar_detecciones,
-    recortar_deteccion,
-    sugerir_cariotipo
+    sugerir_cariotipo,
 )
+from nucleo.dibujo import recortar_deteccion
 from interfaz.pestana_estadisticas import PestanaEstadisticas
-from utils.db_config import obtener_conexion, probar_conexion
 
 
 class InterfazCromosomas:
@@ -35,6 +43,7 @@ class InterfazCromosomas:
         self.analizador = AnalizadorImagen()
         self.ruta_imagen_actual = None
         self.detecciones_actuales = []
+        self.detecciones_descartadas = []
         self.imagen_original_tk = None
         self.imagen_analizada_tk = None
 
@@ -267,7 +276,8 @@ class InterfazCromosomas:
 
     def _verificar_modelo_al_inicio(self):
         """Verifica si el modelo existe al iniciar."""
-        from funciones.modelo_cromosomas import DetectorCromosomas
+        from nucleo.modelo import DetectorCromosomas
+
         detector = DetectorCromosomas()
         if not detector.ruta_modelo.exists():
             self.var_estado.set("⚠ Modelo no encontrado. Coloque best_24_chromosomes.pt en models/")
@@ -307,6 +317,7 @@ class InterfazCromosomas:
             self._mostrar_imagen_en_canvas(self.analizador.obtener_imagen_original(), self.canvas_original)
             self._limpiar_imagen_analizada()
             self._limpiar_resultados()
+            self.detecciones_descartadas = []
             self.btn_analizar.config(state=tk.NORMAL)
             self.btn_guardar.config(state=tk.DISABLED)
             # Configurar eventos de zoom/pan para ambos canvas
@@ -328,8 +339,11 @@ class InterfazCromosomas:
 
         try:
             # Ejecutar análisis
-            resultado = self.analizador.analizar(conf_threshold=0.25)
+            resultado = self.analizador.analizar(
+                conf_threshold=CONF_UMBRAL, iou=IOU_UMBRAL
+            )
             self.detecciones_actuales = preparar_detecciones(resultado["detecciones"])
+            self.detecciones_descartadas = []
 
             # Mostrar imagen analizada
             self._mostrar_imagen_en_canvas(resultado["imagen_anotada"], self.canvas_analizada)
@@ -343,10 +357,20 @@ class InterfazCromosomas:
             # Habilitar guardar
             self.btn_guardar.config(state=tk.NORMAL)
 
-            # Estadísticas en estado
+            # Estadísticas y semáforo de revisión
             stats = obtener_estadisticas_globales(self.detecciones_actuales)
-            self.var_estado.set(f"Análisis completado: {stats['total']} detecciones, "
-                                f"{stats['tipos_unicos']} tipos, conf. promedio: {stats['conf_promedio']:.1%}")
+            conteo = contar([det["clase_final"] for det in self.detecciones_actuales])
+            n_baja = sum(
+                1 for det in self.detecciones_actuales
+                if det["confianza"] < CONF_REVISION
+            )
+            motivos = motivos_revision(len(self.detecciones_actuales), conteo, n_baja)
+            revision = "Revisar" if motivos else "OK"
+            self.var_estado.set(
+                f"Análisis completado: {stats['total']} detecciones, "
+                f"{stats['tipos_unicos']} tipos, conf. promedio: "
+                f"{stats['conf_promedio']:.1%} · Revisión: {revision}"
+            )
 
         except FileNotFoundError as e:
             messagebox.showerror("Modelo no encontrado", str(e))
@@ -444,6 +468,7 @@ class InterfazCromosomas:
         self.txt_resumen.delete(1.0, tk.END)
         self.txt_resumen.config(state=tk.DISABLED)
         self.detecciones_actuales = []
+        self.detecciones_descartadas = []
         self._limpiar_panel_detalle()
 
     # ===== Revisión visual de detecciones =====
@@ -469,8 +494,8 @@ class InterfazCromosomas:
             return
 
         det = self.detecciones_actuales[indice]
-        original = det.get("clase_original", det.get("nombre_clase", ""))
-        actual = det.get("nombre_clase", "")
+        original = det.get("clase_modelo", "")
+        actual = det.get("clase_final", original)
 
         self.var_det_info.set(f"Detectado: {original}   ({det['confianza']:.2%})")
 
@@ -493,7 +518,7 @@ class InterfazCromosomas:
         imagen = self.analizador.obtener_imagen_original()
 
         try:
-            recorte = recortar_deteccion(imagen, det.get("bbox"))
+            recorte = recortar_deteccion(imagen, det.get("caja"))
         except Exception:
             recorte = None
 
@@ -568,13 +593,10 @@ class InterfazCromosomas:
 
         det = self.detecciones_actuales[indice]
 
-        if det.get("nombre_clase") == clase:
+        if det.get("clase_final") == clase:
             return
 
-        det["nombre_clase"] = clase
-
-        if clase in CLASES_CROMOSOMA:
-            det["clase_id"] = CLASES_CROMOSOMA.index(clase)
+        det["clase_final"] = clase
 
         self._actualizar_fila_deteccion(indice)
         self._refrescar_resumen_detecciones()
@@ -593,15 +615,12 @@ class InterfazCromosomas:
             return
 
         det = self.detecciones_actuales[indice]
-        original = det.get("clase_original")
+        original = det.get("clase_modelo")
 
-        if not original or det.get("nombre_clase") == original:
+        if not original or det.get("clase_final") == original:
             return
 
-        det["nombre_clase"] = original
-
-        if original in CLASES_CROMOSOMA:
-            det["clase_id"] = CLASES_CROMOSOMA.index(original)
+        det["clase_final"] = original
 
         self._actualizar_fila_deteccion(indice)
         self._refrescar_resumen_detecciones()
@@ -627,7 +646,7 @@ class InterfazCromosomas:
             return
 
         det = self.detecciones_actuales[indice]
-        clase = det.get("nombre_clase", "-")
+        clase = det.get("clase_final", "-")
         confianza = det.get("confianza", 0)
 
         respuesta = messagebox.askyesno(
@@ -637,6 +656,7 @@ class InterfazCromosomas:
         if not respuesta:
             return
 
+        self.detecciones_descartadas.append({**det, "descartada": True})
         del self.detecciones_actuales[indice]
         self._llenar_tabla(self.detecciones_actuales)
 
@@ -648,7 +668,10 @@ class InterfazCromosomas:
             self.txt_resumen.config(state=tk.DISABLED)
 
         self._refrescar_imagen_anotada()
-        self.var_estado.set("Detección eliminada. Se guardarán solo las detecciones restantes.")
+        self.var_estado.set(
+            "Detección eliminada. No se guardará como cromosoma y quedará "
+            "registrada como descarte."
+        )
 
     def _actualizar_fila_deteccion(self, indice):
         """Actualiza los valores y el resaltado de una fila de la tabla."""
@@ -658,8 +681,8 @@ class InterfazCromosomas:
             return
 
         det = self.detecciones_actuales[indice]
-        original = det.get("clase_original", det.get("nombre_clase", ""))
-        actual = det.get("nombre_clase", "")
+        original = det.get("clase_modelo", "")
+        actual = det.get("clase_final", original)
         corregida = actual != original
 
         self.tree.item(
@@ -708,7 +731,7 @@ class InterfazCromosomas:
             self.btn_det_eliminar.configure(state=tk.DISABLED)
 
     def _guardar_analisis(self):
-        """Guarda el análisis actual en MySQL mediante un procedimiento almacenado."""
+        """Guarda el análisis actual en MySQL con la lógica compartida."""
         if not self.detecciones_actuales:
             messagebox.showwarning("Sin resultados", "No hay detecciones para guardar.")
             return
@@ -717,16 +740,16 @@ class InterfazCromosomas:
             messagebox.showwarning("Sin imagen", "No hay imagen asociada.")
             return
 
-        # Probar conexión primero
         exito, msg = probar_conexion()
         if not exito:
-            messagebox.showerror("MySQL no disponible",
-                                 f"No se puede conectar a la base de datos:\n{msg}\n\n"
-                                 "Verifique que MySQL esté corriendo y las credenciales en utils/db_config.py")
+            messagebox.showerror(
+                "MySQL no disponible",
+                f"No se puede conectar a la base de datos:\n{msg}\n\n"
+                "Verifique que MySQL esté corriendo y las credenciales en "
+                "nucleo/db.py o en las variables de entorno DB_HOST, DB_PORT, "
+                "DB_USER, DB_PASSWORD y DB_NAME."
+            )
             return
-
-        conexion = None
-        cursor = None
 
         try:
             imagen = self.analizador.obtener_imagen_original()
@@ -736,23 +759,17 @@ class InterfazCromosomas:
             alto_img, ancho_img = imagen.shape[:2]
             nombre_img = Path(self.ruta_imagen_actual).name
 
-            # Convertir las cajas normalizadas del modelo a píxeles y armar el JSON
-            filas_detecciones = detecciones_para_bd(
-                self.detecciones_actuales,
+            todas = (
+                [{**det, "descartada": False} for det in self.detecciones_actuales]
+                + self.detecciones_descartadas
+            )
+            id_estudio = guardar_analisis(
+                nombre_img,
+                todas,
                 ancho_img,
-                alto_img
+                alto_img,
+                resultado=None,
             )
-            detecciones_json = json.dumps(filas_detecciones, ensure_ascii=False)
-
-            conexion = obtener_conexion()
-            cursor = conexion.cursor()
-
-            resultado = cursor.callproc(
-                "sp_guardar_analisis_completo",
-                (nombre_img, None, detecciones_json, 0)
-            )
-            id_estudio = resultado[-1] # type: ignore
-            conexion.commit()
 
             messagebox.showinfo(
                 "Guardado",
@@ -766,20 +783,8 @@ class InterfazCromosomas:
                 pass
 
         except Exception as e:
-            if conexion is not None:
-                try:
-                    conexion.rollback()
-                except Exception:
-                    pass
-
             messagebox.showerror("Error guardando", f"No se pudo guardar en MySQL:\n{e}")
             self.var_estado.set("Error al guardar en BD")
-
-        finally:
-            if cursor is not None:
-                cursor.close()
-            if conexion is not None:
-                conexion.close()
 
     def _mostrar_historial(self):
         # Probar conexión
@@ -836,25 +841,8 @@ class InterfazCromosomas:
 
         # Cargar datos desde la vista de estadísticas
         try:
-            conexion = obtener_conexion()
-            cursor = conexion.cursor(dictionary=True)
-            cursor.execute("""
-                SELECT id_estudio, imagen_original, fecha_analisis,
-                       total_detecciones, confianza_promedio, estado, tipos
-                FROM vista_resumen_estudios
-                ORDER BY fecha_analisis DESC
-            """)
-            filas = cursor.fetchall()
-
-            cursor.execute("""
-                SELECT total_estudios, total_cromosomas,
-                       promedio_cromosomas_por_estudio
-                FROM vista_estadisticas_globales
-            """)
-            resumen_global = cursor.fetchone()
-
-            cursor.close()
-            conexion.close()
+            filas = historial_estudios()
+            resumen_global = estadisticas_globales()
 
             for fila in filas:
                 fecha = fila["fecha_analisis"]
@@ -911,40 +899,10 @@ class InterfazCromosomas:
             return
 
         try:
-            conexion = obtener_conexion()
-            cursor = conexion.cursor(dictionary=True)
-
-            cursor.execute("""
-                SELECT id_estudio, imagen_original, fecha_analisis
-                FROM estudios
-                WHERE id_estudio = %s
-            """, (id_estudio,))
-            estudio = cursor.fetchone()
-
-            if not estudio:
-                raise ValueError(f"No existe el estudio {id_estudio}")
-
-            cursor.execute("""
-                SELECT c.id_cromosoma, c.clase_detectada, c.confianza,
-                       COALESCE(cl.cromosoma_asignado, c.clase_detectada) AS cromosoma_asignado,
-                       COALESCE(cl.confianza, c.confianza) AS confianza_asignada
-                FROM cromosomas c
-                LEFT JOIN clasificaciones cl
-                    ON cl.id_cromosoma = c.id_cromosoma
-                WHERE c.id_estudio = %s
-                ORDER BY c.id_cromosoma
-            """, (id_estudio,))
-            filas = cursor.fetchall()
-
-            cursor.execute("""
-                SELECT cariotipo, alteracion, observacion
-                FROM resultados
-                WHERE id_estudio = %s
-            """, (id_estudio,))
-            resultado = cursor.fetchone()
-
-            cursor.close()
-            conexion.close()
+            datos = cargar_estudio(id_estudio)
+            estudio = datos["estudio"]
+            filas = datos["cromosomas"]
+            resultado = datos["resultado"]
 
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo cargar el estudio:\n{e}")
@@ -1125,7 +1083,7 @@ class InterfazCromosomas:
         frame_botones = ttk.Frame(contenido)
         frame_botones.pack(fill=tk.X, pady=(8, 0))
 
-        def guardar_revision():
+        def guardar_revision_estudio():
             cariotipo = var_cariotipo.get().strip()
             alteracion = var_alteracion.get().strip()
             observacion = txt_observacion.get("1.0", tk.END).strip()
@@ -1151,32 +1109,14 @@ class InterfazCromosomas:
                 )
                 return
 
-            datos = [
-                {
-                    "id_cromosoma": id_cromosoma,
-                    "cromosoma_asignado": str(asignaciones[id_cromosoma])[:5],
-                    "confianza": None,
-                }
-                for id_cromosoma in sorted(asignaciones)
-            ]
-
-            conexion = None
-            cursor = None
-
             try:
-                conexion = obtener_conexion()
-                cursor = conexion.cursor()
-                cursor.callproc(
-                    "sp_guardar_revision_estudio",
-                    (
-                        id_estudio,
-                        json.dumps(datos, ensure_ascii=False),
-                        cariotipo,
-                        alteracion or None,
-                        observacion or None,
-                    ),
+                guardar_revision(
+                    id_estudio,
+                    asignaciones,
+                    cariotipo,
+                    alteracion or None,
+                    observacion or None,
                 )
-                conexion.commit()
 
                 self.var_estado.set(f"Estudio #{id_estudio} finalizado correctamente")
                 messagebox.showinfo(
@@ -1192,27 +1132,15 @@ class InterfazCromosomas:
                     pass
 
             except Exception as e:
-                if conexion is not None:
-                    try:
-                        conexion.rollback()
-                    except Exception:
-                        pass
-
                 messagebox.showerror(
                     "Error guardando",
                     f"No se pudo guardar la revisión:\n{e}"
                 )
 
-            finally:
-                if cursor is not None:
-                    cursor.close()
-                if conexion is not None:
-                    conexion.close()
-
         ttk.Button(
             frame_botones,
             text="Guardar revisión",
-            command=guardar_revision,
+            command=guardar_revision_estudio,
         ).pack(side=tk.RIGHT, padx=5)
         ttk.Button(
             frame_botones,
