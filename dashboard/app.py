@@ -415,7 +415,7 @@ def _comparar_modelos_info(rl, rs):
     st.table(ficha)
     if rl is None or rs is None:
         faltan = [MODELOS_INFO[n]["csv"] for n, r in ((nl, rl), (ns, rs)) if r is None]
-        st.info("Para comparar las métricas faltan en modelo_info/: " + ", ".join(faltan))
+        st.info("Para comparar las métricas faltan en models/metricas/: " + ", ".join(faltan))
         return
     ml = mejor_epoca(rl)
     ms = mejor_epoca(rs)
@@ -474,10 +474,10 @@ def pestana_modelo():
             for col, (nom, val) in zip((k1, k2, k3, k4), METRICAS_FINALES.items()):
                 col.metric(nom, f"{val:.1%}")
             _ayuda_metricas()
-            st.info(f"Las curvas por época se muestran cuando se agrega modelo_info/"
+            st.info(f"Las curvas por época se muestran cuando se agrega models/metricas/"
                     f"{MODELOS_INFO[vista]['csv']}.")
         else:
-            st.info(f"Falta el archivo modelo_info/{MODELOS_INFO[vista]['csv']} para mostrar las métricas.")
+            st.info(f"Falta el archivo models/metricas/{MODELOS_INFO[vista]['csv']} para mostrar las métricas.")
 
     st.markdown("#### Errores corregidos por profesionales")
     rev = _revision_cacheada()

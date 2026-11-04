@@ -25,7 +25,7 @@ abriendo el navegador. Al cerrar Tkinter, el dashboard se detiene.
 Para ejecutar solo el dashboard:
 
 ```
-pip install -r dashboard/requirements.txt
+pip install -r requirements.txt
 python -m streamlit run dashboard/app.py
 ```
 
@@ -58,7 +58,7 @@ Se abre en el navegador en http://localhost:8501.
 - `app.py`: la aplicación web.
 - `componentes.py`: visor con zoom, semáforo y avisos.
 - `lanzador.py`: arranque automático del dashboard.
-- `modelo_info/`: results_yolov8l.csv y results_yolov8s.csv (registros del entrenamiento de cada modelo), que usa la pestaña "Sobre el modelo".
+- `models/metricas/`: results_yolov8l.csv y results_yolov8s.csv (registros del entrenamiento de cada modelo), que usa la pestaña "Sobre el modelo".
 
 ## Aviso importante
 

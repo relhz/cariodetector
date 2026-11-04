@@ -30,7 +30,7 @@ CONF_REVISION = 0.50    # por debajo de esta confianza, la detección se marca p
 
 RUTA_PESOS = BASE_DIR / "models" / "best_24_chromosomes.pt"
 CARPETA_IMAGENES = BASE_DIR / "assets" / "imagenes_analizadas"
-RUTA_MODELO_INFO = BASE_DIR / "dashboard" / "modelo_info"
+RUTA_MODELO_INFO = BASE_DIR / "models" / "metricas"
 
 # Colores: el mismo significado en toda la aplicación.
 NORMAL = "Normal (2 copias)"

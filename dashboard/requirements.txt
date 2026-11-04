@@ -1,7 +1,0 @@
-streamlit
-ultralytics
-opencv-python
-altair
-pandas
-numpy
-mysql-connector-python

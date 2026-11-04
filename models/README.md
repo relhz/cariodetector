@@ -38,6 +38,12 @@ print(model.names)
 
 Debe mostrar **24 clases**, desde `cromosoma 1` hasta `cromosoma Y`.
 
+## Métricas de entrenamiento
+
+Los registros CSV de cada entrenamiento (`results_yolov8l.csv` y
+`results_yolov8s.csv`) están en `models/metricas/` y los usa el dashboard en la
+pestaña "Sobre el modelo".
+
 ## ¿Dónde obtenerlo?
 
 El modelo puede:

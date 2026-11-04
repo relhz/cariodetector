@@ -67,7 +67,7 @@ pip install -r requirements.txt
 ```text
 main.py                         Punto de entrada: abre Tkinter y lanza el dashboard
 requirements.txt                Dependencias de Python del proyecto
-README.MD                       Este archivo
+README.md                       Este archivo
 
 assets/
 ├── imagenes_prueba/            Imágenes de ejemplo para analizar
@@ -90,11 +90,6 @@ graficos/                       Gráficos Altair del dashboard, sin Streamlit
 ├── modelo.py                   Curvas y comparación de entrenamientos
 └── revision.py                 Confusiones corregidas por profesionales
 
-funciones/                      Envoltorios de compatibilidad (temporal)
-├── analisis_imagen.py          Reexporta nucleo.analisis_imagen
-├── modelo_cromosomas.py        Reexporta nucleo.modelo
-└── resultados.py               Reexporta nucleo.detecciones y nucleo.dibujo
-
 interfaz/                       Interfaz gráfica de escritorio (Tkinter)
 ├── interfaz.py                 Ventana principal, historial y revisión
 └── pestana_estadisticas.py     Tablas e indicadores estadísticos
@@ -102,16 +97,21 @@ interfaz/                       Interfaz gráfica de escritorio (Tkinter)
 dashboard/                      Dashboard web en Streamlit
 ├── app.py                      Página web (solo interfaz)
 ├── componentes.py              Visor con zoom y avisos reutilizables
-├── lanzador.py                 Arranque y cierre automático de Streamlit
-├── modelo_info/                Registros CSV de los entrenamientos
-└── requirements.txt            Dependencias específicas del dashboard
+└── lanzador.py                 Arranque y cierre automático de Streamlit
 
-models/                         Modelo de detección YOLO
+models/                         Modelo de detección YOLO y sus métricas
 ├── best_24_chromosomes.pt      Pesos requeridos para analizar imágenes
-└── README.MD                   Información sobre el modelo y sus clases
+├── metricas/                   Registros CSV de los entrenamientos
+│   ├── results_yolov8l.csv
+│   └── results_yolov8s.csv
+└── README.md                   Información sobre el modelo y sus clases
 
-utils/
-└── db_config.py                Envoltorio de compatibilidad para nucleo.db
+notebooks/
+└── colab_entrenamiento_YOLO.ipynb   Entrenamiento del modelo en Google Colab
+
+docs/                           Documentación y presentación del proyecto
+├── Informe_Proyecto_Integrador.pdf
+└── Presentacion_Proyecto_Integrador.pptx
 
 scripts_sql/
 └── crear_bd.sql                Creación y configuración de la base `cariotipos`
@@ -135,7 +135,6 @@ scripts_sql/
    necesarios para guardar y consultar estudios.
 4. Revisa y ajusta las credenciales de MySQL en `nucleo/db.py` para que
    coincidan con tu instalación local. El archivo contiene valores de ejemplo.
-   `utils/db_config.py` se mantiene como envoltorio de compatibilidad.
 
 El dashboard usa la misma configuración y la misma lógica de guardado que la
 interfaz Tkinter. También permite definir las variables de entorno `DB_HOST`,
@@ -153,7 +152,7 @@ models/best_24_chromosomes.pt
 
 El modelo debe tener 24 clases compatibles con el orden esperado por el
 proyecto: cromosomas 1–22, X e Y. Sin este archivo no es posible analizar
-imágenes. Consulta [models/README.MD](models/README.MD) para más información.
+imágenes. Consulta [models/README.md](models/README.md) para más información.
 
 ---
 
@@ -177,21 +176,16 @@ imágenes. Consulta [models/README.MD](models/README.MD) para más información.
 
 ### Dashboard web por separado
 
-El dashboard también puede ejecutarse solo, por ejemplo durante el desarrollo:
+El dashboard también puede ejecutarse solo, por ejemplo durante el desarrollo.
+Usa las mismas dependencias del proyecto (`requirements.txt` de la raíz).
 
-1. Instala sus dependencias desde la carpeta raíz, si todavía no lo hiciste:
-
-   ```bash
-   pip install -r dashboard/requirements.txt
-   ```
-
-2. Ejecuta Streamlit:
+1. Ejecuta Streamlit:
 
    ```bash
    python -m streamlit run dashboard/app.py
    ```
 
-3. Abre en el navegador la dirección local que indique Streamlit. Por defecto,
+2. Abre en el navegador la dirección local que indique Streamlit. Por defecto,
    es [`http://localhost:8501`](http://localhost:8501).
 
 ---
@@ -231,7 +225,7 @@ guardar análisis y descargar informes HTML y detecciones CSV.
 ### 1. No se encuentra el modelo
 
 - Verifica que `models/best_24_chromosomes.pt` exista y sea accesible.
-- Consulta [models/README.MD](models/README.MD) para comprobar el modelo esperado.
+- Consulta [models/README.md](models/README.md) para comprobar el modelo esperado.
 
 ### 2. No se puede conectar con MySQL
 
@@ -244,7 +238,6 @@ guardar análisis y descargar informes HTML y detecciones CSV.
 
 - Activa el entorno virtual, si estás utilizando uno.
 - Ejecuta `pip install -r requirements.txt`.
-- Para el dashboard, instala también `dashboard/requirements.txt`.
 
 ### 4. El dashboard muestra datos de demostración
 
