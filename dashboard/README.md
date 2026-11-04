@@ -35,10 +35,14 @@ Se abre en el navegador en http://localhost:8501.
 
 - La detección, los conteos, el dibujo, los informes y el acceso a MySQL viven en
   `nucleo/`. Los usan tanto Tkinter como este dashboard.
+- `nucleo/analisis_imagen.py` concentra el análisis de una imagen y su resumen.
+- `nucleo/guardado.py` prepara y persiste un análisis completo.
 - Los gráficos viven en `graficos/` y no dependen de Streamlit.
 - `dashboard/app.py` solo arma la página y las pestañas.
 - `dashboard/componentes.py` contiene el visor con zoom y los avisos reutilizables.
 - `dashboard/lanzador.py` inicia y detiene Streamlit junto a la aplicación de escritorio.
+- La pestaña **Revisar estudios** permite corregir estudios guardados con la misma
+  lógica de lectura y escritura de `nucleo.db`.
 
 ## Conexión con la base de datos
 

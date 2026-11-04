@@ -16,6 +16,7 @@ from collections import Counter
 
 from .constantes import (
     CLASES_CROMOSOMA,
+    CONF_REVISION,
     DE_MAS,
     DE_MENOS,
     NORMAL,
@@ -186,6 +187,27 @@ def motivos_revision(total, conteo, n_baja):
         motivos.append(f"{n_baja} detección(es) con confianza menor a {CONF_REVISION}")
 
     return motivos
+
+
+def resumen_deteccion(detecciones, conf_revision=CONF_REVISION):
+    """Resumen numérico y motivos de revisión de detecciones canónicas.
+
+    Lo usan las dos interfaces para no repetir el cálculo de conteo,
+    detecciones dudosas y pares fuera de lo esperado.
+    """
+    conteo = contar([
+        normalizar_clase(det.get("clase_final") or det.get("clase_modelo"))
+        for det in detecciones
+    ])
+    n_baja = sum(1 for det in detecciones if det["confianza"] < conf_revision)
+    pares = sum(1 for par in PARES_AUTOSOMICOS if conteo.get(par, 0) != 2)
+
+    return {
+        "conteo": conteo,
+        "n_baja": n_baja,
+        "pares": pares,
+        "motivos": motivos_revision(len(detecciones), conteo, n_baja),
+    }
 
 
 def _numero_cromosoma(codigo):

@@ -77,10 +77,11 @@ nucleo/                         Lógica compartida por Tkinter y el dashboard
 ├── constantes.py               Clases, umbrales, colores y rutas comunes
 ├── modelo.py                   Carga única del modelo YOLO y detección
 ├── detecciones.py              Formato canónico, conteos, revisión y cariotipo
+├── analisis_imagen.py          Servicio de análisis y resumen de una imagen
 ├── dibujo.py                   Dibujo de cajas, recortes y cariograma
 ├── db.py                       Conexión y operaciones de MySQL
+├── guardado.py                 Preparación y guardado de un análisis
 ├── informe.py                  Informe HTML y conversión de imágenes
-├── analisis_imagen.py          Servicio de carga y análisis de una imagen
 └── modelo_info.py              Fichas y registros de entrenamiento
 
 graficos/                       Gráficos Altair del dashboard, sin Streamlit
@@ -113,8 +114,22 @@ docs/                           Documentación y presentación del proyecto
 ├── Informe_Proyecto_Integrador.pdf
 └── Presentacion_Proyecto_Integrador.pptx
 
+tests/
+└── test_nucleo.py              Pruebas de resumen, análisis y guardado
+
 scripts_sql/
 └── crear_bd.sql                Creación y configuración de la base `cariotipos`
+```
+
+---
+
+## Pruebas
+
+Las pruebas de la lógica compartida usan solo la biblioteca estándar. Desde la
+raíz del proyecto:
+
+```bash
+python -m unittest discover -s tests
 ```
 
 ---
@@ -201,7 +216,10 @@ Usa las mismas dependencias del proyecto (`requirements.txt` de la raíz).
 6. Consulta el historial y las estadísticas desde la aplicación o el dashboard.
 
 El dashboard también permite cargar imágenes, revisar o descartar detecciones,
-guardar análisis y descargar informes HTML y detecciones CSV.
+guardar análisis y descargar informes HTML y detecciones CSV. La aplicación de
+escritorio permite además generar el mismo informe HTML desde el botón
+**Informe HTML**, y el dashboard permite corregir estudios ya guardados desde la
+pestaña **Revisar estudios**.
 
 ---
 

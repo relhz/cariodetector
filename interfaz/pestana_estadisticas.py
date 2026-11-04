@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from decimal import Decimal
 
-from nucleo.db import obtener_conexion
+from nucleo.db import TABLAS_CONSULTABLES, estadisticas_globales, leer_tabla
 
 
 def _formatear_valor(valor):
@@ -18,15 +18,7 @@ def _formatear_valor(valor):
 class PestanaEstadisticas(ttk.Frame):
     """Visualización de tablas, vistas e indicadores de la base de datos."""
 
-    VISTAS_DB = (
-        "estudios",
-        "cromosomas",
-        "clasificaciones",
-        "resultados",
-        "correcciones",
-        "vista_resumen_estudios",
-        "vista_estadisticas_globales",
-    )
+    VISTAS_DB = TABLAS_CONSULTABLES
 
     def __init__(self, master):
         super().__init__(master, padding="10")
@@ -92,17 +84,7 @@ class PestanaEstadisticas(ttk.Frame):
 
     def _cargar_indicadores(self):
         try:
-            conexion = obtener_conexion()
-            try:
-                cursor = conexion.cursor(dictionary=True)
-                cursor.execute("""
-                    SELECT total_estudios, total_cromosomas,
-                           promedio_cromosomas_por_estudio
-                    FROM vista_estadisticas_globales
-                """)
-                fila = cursor.fetchone() or {}
-            finally:
-                conexion.close()
+            fila = estadisticas_globales()
 
             self.var_ind1.set(
                 f"Total estudios (fn_total_estudios): {fila.get('total_estudios', '-')}"
@@ -123,13 +105,7 @@ class PestanaEstadisticas(ttk.Frame):
         objeto = self.var_vista.get()
 
         try:
-            conexion = obtener_conexion()
-            try:
-                cursor = conexion.cursor(dictionary=True)
-                cursor.execute(f"SELECT * FROM `{objeto}` LIMIT 1000")
-                filas = cursor.fetchall()
-            finally:
-                conexion.close()
+            filas = leer_tabla(objeto)
 
             if not filas:
                 self.var_mensaje.set("Sin datos para mostrar (límite 1000).")

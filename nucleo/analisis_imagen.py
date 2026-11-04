@@ -5,8 +5,26 @@ from pathlib import Path
 import cv2
 
 from .constantes import CONF_UMBRAL, IOU_UMBRAL
+from .detecciones import preparar_detecciones, resumen_deteccion
 from .dibujo import dibujar
 from .modelo import DetectorCromosomas
+
+
+def analizar(imagen, detector, conf=CONF_UMBRAL, iou=IOU_UMBRAL):
+    """Analiza una imagen ya cargada con un detector concreto.
+
+    Devuelve las detecciones en formato canónico, la imagen anotada y el
+    resumen de revisión. Es el único punto de entrada que deberían usar las
+    interfaces para analizar; el detector se recibe como parámetro para poder
+    cachearlo o comparar distintos pesos.
+    """
+    detecciones = preparar_detecciones(detector.detectar(imagen, conf=conf, iou=iou))
+
+    return {
+        "detecciones": detecciones,
+        "imagen_anotada": dibujar(imagen, detecciones),
+        **resumen_deteccion(detecciones),
+    }
 
 
 class AnalizadorImagen:
@@ -34,16 +52,11 @@ class AnalizadorImagen:
         if self.imagen_original is None:
             raise ValueError("No hay imagen cargada. Use cargar_imagen() primero.")
 
-        self.detecciones = self.detector.detectar(
-            self.imagen_original, conf=conf_threshold, iou=iou
-        )
-        self.imagen_anotada = dibujar(self.imagen_original, self.detecciones)
+        resultado = analizar(self.imagen_original, self.detector, conf_threshold, iou)
+        self.detecciones = resultado["detecciones"]
+        self.imagen_anotada = resultado["imagen_anotada"]
 
-        return {
-            "detecciones": self.detecciones,
-            "imagen_anotada": self.imagen_anotada,
-            "total": len(self.detecciones),
-        }
+        return {**resultado, "total": len(self.detecciones)}
 
     def redibujar_anotada(self, detecciones=None):
         if self.imagen_original is None:

@@ -12,7 +12,6 @@ if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
 import time
-from datetime import datetime
 
 import altair as alt
 import cv2
@@ -36,9 +35,8 @@ from graficos import (
     perdida_por_epoca,
     total_por_imagen,
 )
+from nucleo.analisis_imagen import analizar
 from nucleo.constantes import (
-    AZUL,
-    CARPETA_IMAGENES,
     COLORES,
     CONF_REVISION,
     CONF_UMBRAL,
@@ -47,16 +45,23 @@ from nucleo.constantes import (
     PARES_ORDEN,
     RUTA_PESOS,
 )
-from nucleo.db import cargar_datos, cargar_revision, guardar_analisis
+from nucleo.db import (
+    cargar_datos,
+    cargar_estudio,
+    cargar_revision,
+    guardar_revision,
+    historial_estudios,
+)
 from nucleo.detecciones import (
     contar,
     matriz_conteos,
     motivos_revision,
     orden_par,
-    preparar_detecciones,
-    resultado_revision,
+    resumen_deteccion,
+    sugerir_cariotipo,
 )
 from nucleo.dibujo import cariograma_recortes, dibujar
+from nucleo.guardado import guardar_resultado
 from nucleo.informe import informe_html, png_base64
 from nucleo.modelo import DetectorCromosomas
 from nucleo.modelo_info import (
@@ -100,19 +105,7 @@ def _revision_cacheada():
     return cargar_revision()
 
 
-def _detectar(detector, imagen, conf=CONF_UMBRAL, iou=IOU_UMBRAL):
-    """Ejecuta el detector compartido y devuelve detecciones canónicas."""
-    return preparar_detecciones(detector.detectar(imagen, conf=conf, iou=iou))
-
-
 df, origen, aviso = datos_cacheados()
-
-
-def _resumen_deteccion(dets):
-    conteo = contar([d["clase_modelo"] for d in dets])
-    n_baja = sum(1 for d in dets if d["confianza"] < CONF_REVISION)
-    pares = sum(1 for p in PARES_AUTOSOMICOS if conteo.get(p, 0) != 2)
-    return conteo, n_baja, pares
 
 
 def mostrar_resultado(imagen, u):
@@ -153,9 +146,9 @@ def mostrar_resultado(imagen, u):
         else:
             dets.append({**d, "clase_final": fila["Clase final"], "n": int(fila["N°"])})
     cambios = [d for d in dets if d["clase_final"] != d["clase_modelo"]]
-    conteo = contar([d["clase_final"] for d in dets])
-    n_baja = sum(1 for d in dets if d["confianza"] < CONF_REVISION)
-    motivos = motivos_revision(len(dets), conteo, n_baja)
+    resumen = resumen_deteccion(dets)
+    conteo = resumen["conteo"]
+    motivos = resumen["motivos"]
     dibujada = dibujar(imagen, dets)
 
     with c_img:
@@ -204,23 +197,17 @@ def mostrar_resultado(imagen, u):
         else:
             observ = "Sin revisión manual (dashboard)"
         try:
-            alto, ancho = imagen.shape[:2]
-            ruta = ruta_res = resultado = None
-            if u.get("bytes"):
-                CARPETA_IMAGENES.mkdir(parents=True, exist_ok=True)
-                marca = f"{datetime.now():%Y%m%d_%H%M%S}"
-                ruta = CARPETA_IMAGENES / f"{marca}_{u['archivo']}"
-                ruta.write_bytes(u["bytes"])
-                # imagen con las cajas dibujadas
-                ruta_res = CARPETA_IMAGENES / f"{marca}_resultado_{Path(u['archivo']).stem}.png"
-                cv2.imwrite(str(ruta_res), dibujada)
-            if revisado:
-                resultado = resultado_revision(conteo, observ)
-            todas = ([{**d, "descartada": False} for d in dets]
-                     + [{**d, "clase_final": None, "descartada": True} for d in descartes])
-            u["guardado_id"] = guardar_analisis(
-                u["archivo"], todas, ancho, alto, str(ruta) if ruta else None, observ,
-                imagen_resultado=str(ruta_res) if ruta_res else None, resultado=resultado)
+            u["guardado_id"], _ = guardar_resultado(
+                u["archivo"],
+                dets,
+                descartes,
+                imagen=imagen,
+                imagen_anotada=dibujada,
+                bytes_imagen=u.get("bytes"),
+                guardar_archivos=True,
+                revisado=revisado,
+                observacion=observ,
+            )
             st.cache_data.clear()
             st.rerun()
         except Exception as e:
@@ -277,8 +264,9 @@ def panel_comparar_modelos(imagen, archivo, conf, iou):
         for ruta in (a, b):
             det = cargar_detector(ruta)
             t0 = time.perf_counter()
-            dets = _detectar(det, imagen, conf=conf, iou=iou)
-            res.append({"ruta": ruta, "dets": dets, "seg": time.perf_counter() - t0})
+            r = analizar(imagen, det, conf=conf, iou=iou)
+            res.append({"ruta": ruta, "dets": r["detecciones"],
+                        "seg": time.perf_counter() - t0})
         st.session_state.lab_comp = {"archivo": archivo, "a": a, "b": b, "conf": conf, "iou": iou,
                                      "res": res}
     comp = st.session_state.get("lab_comp")
@@ -286,7 +274,8 @@ def panel_comparar_modelos(imagen, archivo, conf, iou):
         return
     filas, imgs = [], []
     for r in comp["res"]:
-        conteo, n_baja, pares = _resumen_deteccion(r["dets"])
+        resumen = resumen_deteccion(r["dets"])
+        pares, n_baja = resumen["pares"], resumen["n_baja"]
         conf_prom = sum(d["confianza"] for d in r["dets"]) / len(r["dets"]) if r["dets"] else 0
         filas.append({"Modelo": Path(r["ruta"]).name, "Cromosomas detectados": len(r["dets"]),
                       "Pares con cantidad distinta de 2": pares,
@@ -325,7 +314,7 @@ def panel_laboratorio():
 
     b1, b2 = st.columns(2)
     if b1.button("Detectar con estos valores"):
-        dets = _detectar(detector_compartido(), imagen, conf=conf, iou=iou)
+        dets = analizar(imagen, detector_compartido(), conf=conf, iou=iou)["detecciones"]
         st.session_state.lab_uno = {"archivo": subida.name, "conf": conf, "iou": iou, "dets": dets}
     if b2.button("Comparar varios valores de IoU"):
         filas = []
@@ -333,11 +322,10 @@ def panel_laboratorio():
         valores = [0.3, 0.4, 0.5, 0.6, 0.7]
         detector = detector_compartido()
         for i, v in enumerate(valores):
-            dets = _detectar(detector, imagen, conf=conf, iou=v)
-            conteo, n_baja, pares = _resumen_deteccion(dets)
-            filas.append({"IoU": v, "Cromosomas detectados": len(dets),
-                          "Pares con cantidad distinta de 2": pares,
-                          f"Detecciones con confianza < {CONF_REVISION}": n_baja})
+            r = analizar(imagen, detector, conf=conf, iou=v)
+            filas.append({"IoU": v, "Cromosomas detectados": len(r["detecciones"]),
+                          "Pares con cantidad distinta de 2": r["pares"],
+                          f"Detecciones con confianza < {CONF_REVISION}": r["n_baja"]})
             barra.progress((i + 1) / len(valores), text="Detectando…")
         barra.empty()
         st.session_state.lab_barrido = {"archivo": subida.name, "conf": conf,
@@ -347,7 +335,10 @@ def panel_laboratorio():
     if uno and uno["archivo"] == subida.name:
         st.markdown(f"**Resultado con conf={uno['conf']:.2f} e iou={uno['iou']:.2f}**")
         dets = [{**d, "clase_final": d["clase_modelo"]} for d in uno["dets"]]
-        conteo, n_baja, pares = _resumen_deteccion(uno["dets"])
+        resumen_uno = resumen_deteccion(uno["dets"])
+        conteo, n_baja, pares = (
+            resumen_uno["conteo"], resumen_uno["n_baja"], resumen_uno["pares"]
+        )
         k1, k2, k3 = st.columns(3)
         k1.metric("Cromosomas detectados", len(dets))
         k2.metric("Pares con cantidad distinta de 2", pares)
@@ -512,6 +503,114 @@ def pestana_modelo():
 """)
 
 
+def panel_revisar_estudios():
+    """Revisión y corrección de estudios ya guardados en MySQL."""
+    st.subheader("Revisar estudios guardados")
+    st.caption("Corregí las clases asignadas, completá el resultado y guardá la revisión. "
+               "Queda registrada igual que desde la aplicación de escritorio.")
+    try:
+        estudios = historial_estudios()
+    except Exception as e:
+        st.error(f"No se pudo cargar el historial desde MySQL: {e}")
+        return
+    if not estudios:
+        st.info("No hay estudios guardados para revisar.")
+        return
+
+    def etiqueta(estudio):
+        fecha = estudio.get("fecha_analisis")
+        fecha_txt = fecha.strftime("%Y-%m-%d %H:%M") if hasattr(fecha, "strftime") else str(fecha)
+        return f"#{estudio['id_estudio']} · {estudio['imagen_original']} · {fecha_txt}"
+
+    opciones = {etiqueta(estudio): estudio for estudio in estudios}
+    elegido = st.selectbox("Estudio", list(opciones), key="rev_estudio")
+    id_estudio = opciones[elegido]["id_estudio"]
+
+    try:
+        datos = cargar_estudio(id_estudio)
+    except Exception as e:
+        st.error(f"No se pudo cargar el estudio #{id_estudio}: {e}")
+        return
+
+    cromosomas = datos["cromosomas"]
+    if not cromosomas:
+        st.warning("El estudio no tiene cromosomas guardados.")
+        return
+
+    base = pd.DataFrame({
+        "ID": [c["id_cromosoma"] for c in cromosomas],
+        "Clase detectada": [c["clase_detectada"] for c in cromosomas],
+        "Clase asignada": [
+            c["cromosoma_asignado"] or c["clase_detectada"] for c in cromosomas
+        ],
+        "Confianza": [
+            round(float(c["confianza_asignada"] or 0), 3) for c in cromosomas
+        ],
+    })
+    opciones_clase = list(PARES_ORDEN) + sorted(
+        set(base["Clase detectada"]) - set(PARES_ORDEN)
+    )
+    editado = st.data_editor(
+        base, hide_index=True, key=f"rev_editor_{id_estudio}",
+        disabled=["ID", "Clase detectada", "Confianza"],
+        column_config={
+            "Clase asignada": st.column_config.SelectboxColumn(
+                "Clase asignada", options=opciones_clase, required=True),
+        },
+    )
+
+    resultado = datos["resultado"] or {}
+    conteo_actual = contar(list(editado["Clase asignada"]))
+    st.caption(f"Conteo actual: {sum(conteo_actual.values())} cromosomas · "
+               f"{sum(1 for p in PARES_AUTOSOMICOS if conteo_actual.get(p, 0) != 2)} "
+               "par(es) autosómico(s) distinto(s) de 2.")
+
+    clave_car = f"rev_cariotipo_{id_estudio}"
+    if clave_car not in st.session_state:
+        st.session_state[clave_car] = resultado.get("cariotipo") or ""
+
+    if st.button("Sugerir cariotipo", key=f"rev_sugerir_{id_estudio}"):
+        propuesto = sugerir_cariotipo(list(editado["Clase asignada"]))
+        if propuesto:
+            st.session_state[clave_car] = propuesto
+            st.rerun()
+        else:
+            st.warning("No se pudo sugerir un cariotipo con esas asignaciones.")
+
+    cariotipo = st.text_input("Cariotipo", key=clave_car, max_chars=30)
+
+    clave_alt = f"rev_alteracion_{id_estudio}"
+    if clave_alt not in st.session_state:
+        st.session_state[clave_alt] = resultado.get("alteracion") or ""
+    alteracion = st.text_input("Alteración", key=clave_alt, max_chars=100)
+
+    clave_obs = f"rev_observacion_{id_estudio}"
+    if clave_obs not in st.session_state:
+        st.session_state[clave_obs] = resultado.get("observacion") or ""
+    observacion = st.text_area("Observación", key=clave_obs)
+
+    if st.button("Guardar revisión", type="primary", key=f"rev_guardar_{id_estudio}"):
+        if not cariotipo.strip():
+            st.warning("Ingresá un cariotipo o usá «Sugerir cariotipo».")
+        else:
+            asignaciones = {
+                int(fila["ID"]): fila["Clase asignada"]
+                for _, fila in editado.iterrows()
+            }
+            try:
+                guardar_revision(
+                    id_estudio,
+                    asignaciones,
+                    cariotipo.strip(),
+                    alteracion.strip() or None,
+                    observacion.strip() or None,
+                )
+                st.cache_data.clear()
+                st.success(f"Estudio #{id_estudio} guardado como finalizado.")
+            except Exception as e:
+                st.error(f"No se pudo guardar la revisión: {e}")
+
+
 # Filtros de la barra lateral
 df_f = df
 with st.sidebar:
@@ -533,9 +632,9 @@ with st.sidebar:
 
 m = matriz_conteos(df_f) if not df_f.empty else None
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
     ["Subir y detectar", "Dashboard", "Historial de sesión", "Gráficos", "Laboratorio",
-     "Sobre el modelo"])
+     "Sobre el modelo", "Revisar estudios"])
 
 #  TAB 1: subir y detectar
 with tab1:
@@ -546,16 +645,16 @@ with tab1:
 
         if st.button("Detectar cromosomas"):
             t0 = time.perf_counter()
-            dets = _detectar(detector_compartido(), imagen)
+            r = analizar(imagen, detector_compartido())
+            dets = r["detecciones"]
             segundos = time.perf_counter() - t0
             st.session_state.n_runs += 1
             st.session_state.ultimo_resultado = {
                 "run": st.session_state.n_runs, "archivo": archivo.name,
                 "detecciones": dets, "guardado_id": None, "bytes": bytes_imagen.tobytes(),
                 "segundos": segundos}
-            conteo0 = contar([d["clase_modelo"] for d in dets])
-            motivos0 = motivos_revision(
-                len(dets), conteo0, sum(1 for d in dets if d["confianza"] < CONF_REVISION))
+            conteo0 = r["conteo"]
+            motivos0 = r["motivos"]
             st.session_state.historial_pruebas.append({
                 "Imagen": archivo.name,
                 "Total detectado": len(dets),
@@ -735,3 +834,7 @@ with tab5:
 #  TAB 6: sobre el modelo
 with tab6:
     pestana_modelo()
+
+#  TAB 7: revisar estudios guardados
+with tab7:
+    panel_revisar_estudios()

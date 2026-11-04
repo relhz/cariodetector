@@ -6,27 +6,26 @@ import cv2
 from PIL import Image, ImageTk
 
 from nucleo.analisis_imagen import AnalizadorImagen
-from nucleo.constantes import CLASES_CROMOSOMA, CONF_REVISION, CONF_UMBRAL, IOU_UMBRAL
+from nucleo.constantes import CLASES_CROMOSOMA, CONF_UMBRAL, IOU_UMBRAL, RUTA_PESOS
 from nucleo.db import (
     cargar_estudio,
     estadisticas_globales,
-    guardar_analisis,
     guardar_revision,
     historial_estudios,
     probar_conexion,
 )
 from nucleo.detecciones import (
-    contar,
     detecciones_a_tabla,
     formatear_resumen_texto,
     generar_resumen_detallado,
-    motivos_revision,
     normalizar_clase,
     obtener_estadisticas_globales,
-    preparar_detecciones,
+    resumen_deteccion,
     sugerir_cariotipo,
 )
 from nucleo.dibujo import recortar_deteccion
+from nucleo.guardado import guardar_resultado
+from nucleo.informe import informe_html, png_base64
 from interfaz.pestana_estadisticas import PestanaEstadisticas
 
 
@@ -105,6 +104,9 @@ class InterfazCromosomas:
 
         self.btn_guardar = ttk.Button(frame_controles, text="Guardar análisis",command=self._guardar_analisis, width=15, state=tk.DISABLED)
         self.btn_guardar.pack(side=tk.LEFT, padx=5)
+
+        self.btn_informe = ttk.Button(frame_controles, text="Informe HTML",command=self._guardar_informe, width=14, state=tk.DISABLED)
+        self.btn_informe.pack(side=tk.LEFT, padx=5)
 
         self.btn_historial = ttk.Button(frame_controles, text="Historial",command=self._mostrar_historial, width=12)
         self.btn_historial.pack(side=tk.LEFT, padx=5)
@@ -320,6 +322,7 @@ class InterfazCromosomas:
             self.detecciones_descartadas = []
             self.btn_analizar.config(state=tk.NORMAL)
             self.btn_guardar.config(state=tk.DISABLED)
+            self.btn_informe.config(state=tk.DISABLED)
             # Configurar eventos de zoom/pan para ambos canvas
             self._configurar_zoom_pan()
             self.var_estado.set(f"Imagen cargada: {Path(ruta).name}")
@@ -338,11 +341,11 @@ class InterfazCromosomas:
         self.btn_analizar.config(state=tk.DISABLED)
 
         try:
-            # Ejecutar análisis
+            # Ejecutar análisis (detecciones ya canónicas + resumen compartido)
             resultado = self.analizador.analizar(
                 conf_threshold=CONF_UMBRAL, iou=IOU_UMBRAL
             )
-            self.detecciones_actuales = preparar_detecciones(resultado["detecciones"])
+            self.detecciones_actuales = resultado["detecciones"]
             self.detecciones_descartadas = []
 
             # Mostrar imagen analizada
@@ -354,18 +357,13 @@ class InterfazCromosomas:
             # Mostrar resumen con las clases normalizadas
             self._mostrar_resumen(generar_resumen_detallado(self.detecciones_actuales))
 
-            # Habilitar guardar
+            # Habilitar guardar e informe
             self.btn_guardar.config(state=tk.NORMAL)
+            self.btn_informe.config(state=tk.NORMAL)
 
             # Estadísticas y semáforo de revisión
             stats = obtener_estadisticas_globales(self.detecciones_actuales)
-            conteo = contar([det["clase_final"] for det in self.detecciones_actuales])
-            n_baja = sum(
-                1 for det in self.detecciones_actuales
-                if det["confianza"] < CONF_REVISION
-            )
-            motivos = motivos_revision(len(self.detecciones_actuales), conteo, n_baja)
-            revision = "Revisar" if motivos else "OK"
+            revision = "Revisar" if resultado["motivos"] else "OK"
             self.var_estado.set(
                 f"Análisis completado: {stats['total']} detecciones, "
                 f"{stats['tipos_unicos']} tipos, conf. promedio: "
@@ -756,19 +754,12 @@ class InterfazCromosomas:
             if imagen is None:
                 raise ValueError("No hay una imagen cargada para calcular las coordenadas.")
 
-            alto_img, ancho_img = imagen.shape[:2]
             nombre_img = Path(self.ruta_imagen_actual).name
-
-            todas = (
-                [{**det, "descartada": False} for det in self.detecciones_actuales]
-                + self.detecciones_descartadas
-            )
-            id_estudio = guardar_analisis(
+            id_estudio, _ = guardar_resultado(
                 nombre_img,
-                todas,
-                ancho_img,
-                alto_img,
-                resultado=None,
+                self.detecciones_actuales,
+                self.detecciones_descartadas,
+                imagen=imagen,
             )
 
             messagebox.showinfo(
@@ -785,6 +776,64 @@ class InterfazCromosomas:
         except Exception as e:
             messagebox.showerror("Error guardando", f"No se pudo guardar en MySQL:\n{e}")
             self.var_estado.set("Error al guardar en BD")
+
+    def _guardar_informe(self):
+        """Genera el informe HTML del análisis actual con el módulo compartido."""
+        if not self.detecciones_actuales:
+            messagebox.showwarning("Sin resultados", "No hay detecciones para informar.")
+            return
+
+        if not self.ruta_imagen_actual:
+            messagebox.showwarning("Sin imagen", "No hay imagen asociada.")
+            return
+
+        ruta = filedialog.asksaveasfilename(
+            title="Guardar informe HTML",
+            defaultextension=".html",
+            initialfile=f"informe_{Path(self.ruta_imagen_actual).stem}.html",
+            filetypes=[("Informe HTML", "*.html"), ("Todos", "*.*")],
+        )
+        if not ruta:
+            return
+
+        try:
+            resumen = resumen_deteccion(self.detecciones_actuales)
+            filas = [
+                (det["clase_final"], det["confianza"])
+                for det in self.detecciones_actuales
+            ]
+            corregidas = sum(
+                1 for det in self.detecciones_actuales
+                if det.get("clase_final") != det.get("clase_modelo")
+            )
+            notas = ["Informe generado desde la aplicación de escritorio."]
+            if corregidas or self.detecciones_descartadas:
+                notas.append(
+                    f"Revisión manual: {corregidas} etiqueta(s) corregida(s) y "
+                    f"{len(self.detecciones_descartadas)} detección(es) descartada(s)."
+                )
+
+            imagen = self.analizador.obtener_imagen_analizada()
+            html_informe = informe_html(
+                Path(self.ruta_imagen_actual).name,
+                resumen["conteo"],
+                resumen["motivos"],
+                filas,
+                png_base64(imagen) if imagen is not None else None,
+                {
+                    "Confianza mínima (conf)": CONF_UMBRAL,
+                    "IoU máximo (iou)": IOU_UMBRAL,
+                    "Pesos": str(RUTA_PESOS),
+                },
+                notas,
+            )
+            Path(ruta).write_text(html_informe, encoding="utf-8")
+            messagebox.showinfo("Informe guardado", f"Se guardó el informe en:\n{ruta}")
+            self.var_estado.set(f"Informe HTML guardado: {ruta}")
+
+        except Exception as e:
+            messagebox.showerror("Error generando informe", f"No se pudo generar el informe:\n{e}")
+            self.var_estado.set("Error al generar el informe")
 
     def _mostrar_historial(self):
         # Probar conexión

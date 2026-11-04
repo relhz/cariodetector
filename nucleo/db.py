@@ -24,7 +24,16 @@ COLUMNAS = [
     "numero_par", "confianza", "x", "y", "ancho", "alto",
 ]
 
-RUTA_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "dashboard", "cromosomas.csv")
+# Tablas y vistas que las pantallas pueden consultar directamente.
+TABLAS_CONSULTABLES = (
+    "estudios",
+    "cromosomas",
+    "clasificaciones",
+    "resultados",
+    "correcciones",
+    "vista_resumen_estudios",
+    "vista_estadisticas_globales",
+)
 
 # Esquema oficial (scripts_sql/crear_bd.sql, base `cariotipos`): estudios ->
 # cromosomas -> clasificaciones. La clase final es la de `clasificaciones` (la
@@ -77,6 +86,24 @@ def _conectar():
 
 # Alias público para las pantallas que necesitan consultar tablas sueltas.
 obtener_conexion = _conectar
+
+
+def leer_tabla(nombre, limite=1000):
+    """Devuelve las filas de una tabla o vista permitida.
+
+    El nombre no se puede parametrizar en SQL, así que se valida contra una
+    lista blanca. Evita que las pantallas repitan consultas y SQL crudo.
+    """
+    if nombre not in TABLAS_CONSULTABLES:
+        raise ValueError(f"Tabla no permitida: {nombre}")
+
+    conexion = _conectar()
+    try:
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(f"SELECT * FROM `{nombre}` LIMIT %s", (int(limite),))
+        return cursor.fetchall()
+    finally:
+        conexion.close()
 
 
 def probar_conexion():
@@ -408,8 +435,5 @@ def cargar_datos():
         aviso = "La base MySQL está vacía: todavía no hay detecciones guardadas."
     except Exception as e:
         aviso = f"No se pudo conectar a MySQL: {e}"
-
-    if os.path.exists(RUTA_CSV):
-        return _normalizar(pd.read_csv(RUTA_CSV)), "CSV", aviso
 
     return _normalizar(_demo()), "DEMO", aviso
